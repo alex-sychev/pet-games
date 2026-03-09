@@ -1900,71 +1900,41 @@ function loopRun() {
   rafId=requestAnimationFrame(loopRun);
 }
 
-let rBgCache = null;
-let rBgCacheW = 0, rBgCacheH = 0;
-
-function buildRunBgCache() {
-  rBgCache = document.createElement('canvas');
-  rBgCache.width = W; rBgCache.height = H;
-  const bc = rBgCache.getContext('2d');
-
-  // Sky gradient
-  const gr = bc.createLinearGradient(0,0,0,rGroundY);
-  gr.addColorStop(0,'#ffd6e7');
-  gr.addColorStop(0.5,'#fce4ec');
-  gr.addColorStop(1,'#f8bbd9');
-  bc.fillStyle=gr; bc.fillRect(0,0,W,rGroundY);
-
-  // Sun with glow
-  const sunX=W*0.8, sunY=60;
-  const sunGlow=bc.createRadialGradient(sunX,sunY,10,sunX,sunY,80);
-  sunGlow.addColorStop(0,'rgba(255,220,150,0.5)'); sunGlow.addColorStop(1,'rgba(255,220,150,0)');
-  bc.fillStyle=sunGlow; bc.beginPath(); bc.arc(sunX,sunY,80,0,Math.PI*2); bc.fill();
-  bc.fillStyle='#ffe066'; bc.beginPath(); bc.arc(sunX,sunY,28,0,Math.PI*2); bc.fill();
-
-  // Ground
-  bc.fillStyle='#c8e6c9'; bc.fillRect(0,rGroundY,W,H-rGroundY);
-  const gGr=bc.createLinearGradient(0,rGroundY,0,rGroundY+16);
-  gGr.addColorStop(0,'#81c784'); gGr.addColorStop(1,'#a5d6a7');
-  bc.fillStyle=gGr; bc.fillRect(0,rGroundY,W,16);
-
-  rBgCacheW = W; rBgCacheH = H;
-}
-
-let rBgGradient = null;
-
 function drawRunBg() {
-  // Draw cached static background
-  if (!rBgCache || rBgCacheW !== W || rBgCacheH !== H) buildRunBgCache();
-  ctx.drawImage(rBgCache, 0, 0);
+  // Sky — простой градиент каждый кадр
+  ctx.fillStyle = '#ffd6e7';
+  ctx.fillRect(0, 0, W, rGroundY);
 
-  // Clouds (animated — drawn each frame but simple)
-  rClouds.forEach(c=>{
-    c.x-=c.speed;
-    if(c.x<-150) { c.x=W+50; c.y=30+Math.random()*(H*0.28); }
-    ctx.save(); ctx.translate(c.x,c.y); ctx.scale(c.s,c.s);
-    ctx.fillStyle='rgba(255,255,255,0.85)';
-    [[-20,0,38],[10,0,28],[0,-14,24],[-15,4,18],[20,5,20]].forEach(([dx,dy,r])=>{
+  // Солнце
+  ctx.save();
+  ctx.fillStyle = '#ffe066';
+  ctx.beginPath(); ctx.arc(W*0.85, 55, 26, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+
+  // Облака
+  rClouds.forEach(c => {
+    c.x -= c.speed;
+    if (c.x < -150) { c.x = W+50; c.y = 30+Math.random()*(rGroundY*0.4); }
+    ctx.save(); ctx.translate(c.x, c.y); ctx.scale(c.s, c.s);
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    [[-18,0,34],[8,0,24],[0,-13,20],[-12,4,16],[18,4,17]].forEach(([dx,dy,r])=>{
       ctx.beginPath(); ctx.arc(dx,dy,r,0,Math.PI*2); ctx.fill();
     });
     ctx.restore();
   });
 
-  // Butterflies — simple dots that don't flicker
-  rMountains.forEach((b,i)=>{
-    b.x-=b.speed*0.6;
-    if(b.x<-40) { b.x=W+20; b.y=40+Math.random()*(rGroundY*0.5); }
-    const by = b.y+Math.sin(rTick*0.04+i)*6;
-    const flutter = Math.abs(Math.sin(rTick*0.12+i*1.2));
+  // Бабочки
+  rMountains.forEach((b,i) => {
+    b.x -= b.speed*0.5;
+    if (b.x < -40) { b.x = W+20; b.y = 40+Math.random()*(rGroundY*0.45); }
+    const by = b.y + Math.sin(rTick*0.04+i)*5;
+    const fw = Math.abs(Math.sin(rTick*0.1+i*1.3))*8+4;
     ctx.save(); ctx.translate(b.x, by);
-    // Wing left
-    ctx.fillStyle='rgba(244,114,182,0.8)';
-    ctx.beginPath(); ctx.ellipse(-7,-2, 10*flutter+2, 6, -0.3, 0, Math.PI*2); ctx.fill();
-    // Wing right
-    ctx.beginPath(); ctx.ellipse(7,-2, 10*flutter+2, 6, 0.3, 0, Math.PI*2); ctx.fill();
-    // Body
-    ctx.fillStyle='#9d174d';
-    ctx.beginPath(); ctx.ellipse(0,0,2,6,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = 'rgba(244,114,182,0.8)';
+    ctx.beginPath(); ctx.ellipse(-fw/2, -2, fw, 5, -0.3, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(fw/2, -2, fw, 5, 0.3, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#9d174d';
+    ctx.beginPath(); ctx.ellipse(0, 0, 2, 5, 0, 0, Math.PI*2); ctx.fill();
     ctx.restore();
   });
 }
