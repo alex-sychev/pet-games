@@ -606,6 +606,7 @@ html, body {
 /* Home thumbnail backgrounds */
 .thumb-jump { background: linear-gradient(135deg, #1a1242 0%, #0f3460 100%); }
 .thumb-run  { background: linear-gradient(135deg, #ffd6e7 0%, #ffb3d1 100%); }
+.thumb-mario { background: linear-gradient(135deg, #2d6a4f 0%, #1b4332 50%, #081c15 100%); }
 
 /* Scrollbar for lb */
 .lb-list::-webkit-scrollbar { width: 4px; }
@@ -803,6 +804,18 @@ html, body {
       <div class="game-card-info">
         <div class="game-card-title">Раннер 🎀</div>
         <div class="game-card-desc">Беги и прыгай через препятствия!</div>
+      </div>
+    </div>
+
+    <div class="game-card" id="cardMario" onclick="launchGame('mario')" style="cursor:pointer;grid-column:1/-1">
+      <div class="game-card-thumb thumb-mario" style="aspect-ratio:2/1">
+        <span class="emoji-bg">🍄</span>
+      </div>
+      <div class="game-card-score" id="hsMario">— очков</div>
+      <div class="game-card-badge" style="background:#e53e3e">Новинка</div>
+      <div class="game-card-info">
+        <div class="game-card-title">🍄 Грибной мир</div>
+        <div class="game-card-desc">Собирай монеты, топчи врагов, побеждай боссов!</div>
       </div>
     </div>
   </div>
@@ -1054,6 +1067,7 @@ function updateHomePetPreview() {
   if (nameText) nameText.textContent = customPetName || pet.name;
   document.getElementById('hsJump').textContent = getLocalHS('jump') ? getLocalHS('jump') + ' очк.' : '— очков';
   document.getElementById('hsRun').textContent  = getLocalHS('run')  ? getLocalHS('run')  + ' очк.' : '— очков';
+  document.getElementById('hsMario').textContent = getLocalHS('mario') ? getLocalHS('mario') + ' очк.' : '— очков';
 }
 
 function compressAndSaveImg(img) {
@@ -1218,11 +1232,17 @@ function launchGame(game) {
     document.getElementById('ctrlLeft').style.display = 'flex';
     document.getElementById('ctrlRight').style.display = 'flex';
     document.getElementById('ctrlJump').style.display = 'none';
-  } else {
+  } else if (game === 'run') {
     document.getElementById('startTitle').textContent = '🌸 Раннер';
     document.getElementById('startDesc').textContent = 'Беги и прыгай — ты звезда! 💕';
     document.getElementById('ctrlLeft').style.display = 'none';
     document.getElementById('ctrlRight').style.display = 'none';
+    document.getElementById('ctrlJump').style.display = 'flex';
+  } else if (game === 'mario') {
+    document.getElementById('startTitle').textContent = '🍄 Грибной мир';
+    document.getElementById('startDesc').textContent = 'Топчи врагов, собирай монеты, победи босса!';
+    document.getElementById('ctrlLeft').style.display = 'flex';
+    document.getElementById('ctrlRight').style.display = 'flex';
     document.getElementById('ctrlJump').style.display = 'flex';
   }
   renderGamePetSelector();
@@ -1403,6 +1423,7 @@ function drawPetAt(cx, cy, size, dir, squash, hasJet, showChute) {
 // ══════════════════════════════════════════════════
 let gameActive = false;
 let rafId = null;
+const keys = {};
 
 function stopGame() {
   gameActive = false;
@@ -1418,7 +1439,8 @@ function startGame() {
   document.getElementById('bonusBar').innerHTML = '';
   gameActive = true;
   if (currentGame === 'jump') initJump();
-  else initRun();
+  else if (currentGame === 'run') initRun();
+  else if (currentGame === 'mario') initMario();
 }
 
 // ══════════════════════════════════════════════════
@@ -2103,8 +2125,559 @@ function pseudoR(seed) {
 }
 
 // ══════════════════════════════════════════════════
-//  GAME OVER
+//  ═══ GAME 3: ГРИБНОЙ МИР (Платформер) ═══
 // ══════════════════════════════════════════════════
+let mScore, mCoins, mLives, mTick, mLevel;
+let mCamX;
+let mPlatforms, mEnemies, mCoinsArr, mBoss, mGoal;
+let mBossDefeated;
+
+const mp = {
+  x:0, y:0, vx:0, vy:0,
+  w:44, h:44,
+  grounded:false, dir:1,
+  squash:1, invincible:0,
+  jumpCount:0,
+};
+
+const TILE = 48;
+const GRAVITY = 0.5;
+
+// Уровень — набор платформ
+function generateLevel(lvl) {
+  const platforms = [];
+  const coins = [];
+  const enemies = [];
+
+  // Земля
+  for (let x=0; x<4000; x+=TILE) {
+    platforms.push({ x, y: H-TILE, w:TILE, h:TILE, type:'ground' });
+  }
+
+  // Платформы и объекты
+  const configs = [
+    { x:200,  y:H-TILE*3, w:TILE*3 },
+    { x:400,  y:H-TILE*4, w:TILE*2 },
+    { x:600,  y:H-TILE*3, w:TILE*3 },
+    { x:800,  y:H-TILE*5, w:TILE*2 },
+    { x:1000, y:H-TILE*3, w:TILE*4 },
+    { x:1200, y:H-TILE*4, w:TILE*2 },
+    { x:1400, y:H-TILE*6, w:TILE*3 },
+    { x:1600, y:H-TILE*3, w:TILE*3 },
+    { x:1800, y:H-TILE*5, w:TILE*2 },
+    { x:2000, y:H-TILE*4, w:TILE*4 },
+    { x:2300, y:H-TILE*3, w:TILE*3 },
+    { x:2600, y:H-TILE*5, w:TILE*2 },
+    { x:2900, y:H-TILE*4, w:TILE*3 },
+  ];
+
+  configs.forEach(c => {
+    platforms.push({ x:c.x, y:c.y, w:c.w, h:TILE/2, type:'platform' });
+    // Монеты на платформах
+    for (let cx=c.x+8; cx<c.x+c.w-8; cx+=32) {
+      coins.push({ x:cx+16, y:c.y-28, r:10, done:false, anim:Math.random()*6 });
+    }
+  });
+
+  // Монеты на земле
+  for (let i=0; i<20; i++) {
+    coins.push({ x:150+i*140, y:H-TILE-28, r:10, done:false, anim:i*0.5 });
+  }
+
+  // Враги — грибы (Гумба)
+  const ePositions = [300, 550, 750, 1050, 1300, 1550, 1750, 2050, 2350, 2700];
+  ePositions.forEach((ex, i) => {
+    enemies.push({
+      x:ex, y:H-TILE-36, w:36, h:36,
+      vx: (i%2===0)?-1:1, grounded:true,
+      anim:0, alive:true, type: i%3===0?'spike':'goomba',
+      stomped:false, stompAnim:0,
+    });
+  });
+
+  // Финишный флаг
+  const goal = { x:3200, y:H-TILE*6, w:20, h:TILE*5, reached:false };
+
+  // Босс в конце
+  const boss = lvl>=1 ? {
+    x:3400, y:H-TILE-80, w:70, h:70,
+    hp: 3+lvl, maxHp:3+lvl,
+    vx:-2, vy:0, grounded:false,
+    anim:0, alive:true, invincible:0,
+    phase:0, shootTimer:0,
+    bullets:[],
+  } : null;
+
+  return { platforms, coins, enemies, goal, boss };
+}
+
+function initMario() {
+  mScore=0; mCoins=0; mLives=3; mTick=0; mLevel=0;
+  mCamX=0; mBossDefeated=false;
+
+  mp.x=80; mp.y=H-TILE-mp.h/2;
+  mp.vx=0; mp.vy=0; mp.grounded=true; mp.dir=1;
+  mp.squash=1; mp.invincible=0; mp.jumpCount=0;
+
+  const lvl = generateLevel(mLevel);
+  mPlatforms = lvl.platforms;
+  mCoinsArr  = lvl.coins;
+  mEnemies   = lvl.enemies;
+  mGoal      = lvl.goal;
+  mBoss      = lvl.boss;
+
+  document.getElementById('uiScore').textContent='0';
+  document.getElementById('uiCoins').textContent='0';
+
+  rafId = requestAnimationFrame(loopMario);
+}
+
+function loopMario() {
+  if (!gameActive) return;
+  mTick++;
+
+  ctx.clearRect(0,0,W,H);
+  drawMarioBg();
+  drawMarioWorld();
+  updateMarioPlayer();
+  drawMarioPlayer();
+  drawMarioHUD();
+  updateParticles();
+
+  rafId = requestAnimationFrame(loopMario);
+}
+
+function drawMarioBg() {
+  // Небо
+  const gr = ctx.createLinearGradient(0,0,0,H);
+  gr.addColorStop(0,'#87ceeb'); gr.addColorStop(1,'#c8e6ff');
+  ctx.fillStyle=gr; ctx.fillRect(0,0,W,H);
+
+  // Облака
+  const cloudOffsets = [100,350,600,900,1200];
+  cloudOffsets.forEach((cx,i)=>{
+    const sx = ((cx - mCamX*0.3) % (W+200) + W+200) % (W+200) - 100;
+    ctx.save(); ctx.translate(sx, 60+i%2*40);
+    ctx.fillStyle='white';
+    [[-20,0,30],[10,0,22],[0,-14,18],[-10,4,14],[18,4,15]].forEach(([dx,dy,r])=>{
+      ctx.beginPath(); ctx.arc(dx,dy,r,0,Math.PI*2); ctx.fill();
+    });
+    ctx.restore();
+  });
+
+  // Горы
+  [200,500,900,1400].forEach((mx,i)=>{
+    const sx = ((mx - mCamX*0.5) % (W+300) + W+300) % (W+300) - 100;
+    ctx.fillStyle = '#a8d5a2';
+    ctx.beginPath();
+    ctx.moveTo(sx-60,H-TILE); ctx.lineTo(sx,H-TILE-100-i*20); ctx.lineTo(sx+60,H-TILE);
+    ctx.fill();
+  });
+}
+
+function drawMarioWorld() {
+  // Платформы
+  mPlatforms.forEach(p=>{
+    const sx = p.x - mCamX;
+    if (sx > W+50 || sx+p.w < -50) return;
+    if (p.type==='ground') {
+      ctx.fillStyle='#5d4037';
+      ctx.fillRect(sx, p.y, p.w, p.h);
+      ctx.fillStyle='#4caf50';
+      ctx.fillRect(sx, p.y, p.w, 8);
+      ctx.fillStyle='#388e3c';
+      ctx.fillRect(sx, p.y+8, p.w, 4);
+    } else {
+      ctx.fillStyle='#e67e22';
+      ctx.fillRect(sx, p.y, p.w, p.h);
+      ctx.fillStyle='#f39c12';
+      ctx.fillRect(sx, p.y, p.w, 5);
+      ctx.fillStyle='#d35400';
+      ctx.fillRect(sx, p.y+p.h-4, p.w, 4);
+      // Узор
+      ctx.fillStyle='rgba(0,0,0,0.1)';
+      for(let bx=sx; bx<sx+p.w; bx+=16) ctx.fillRect(bx, p.y, 2, p.h);
+    }
+  });
+
+  // Монеты
+  mCoinsArr.forEach(c=>{
+    if (c.done) return;
+    const sx = c.x - mCamX;
+    if (sx<-20||sx>W+20) return;
+    c.anim+=0.07;
+    const bob = Math.sin(c.anim)*3;
+    ctx.save(); ctx.translate(sx, c.y+bob);
+    // Монета — жёлтый круг с блеском
+    ctx.fillStyle='#ffd700';
+    ctx.beginPath(); ctx.arc(0,0,c.r,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#fff8';
+    ctx.beginPath(); ctx.arc(-3,-3,c.r*0.4,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  });
+
+  // Флаг финиша
+  if (mGoal && !mGoal.reached) {
+    const sx = mGoal.x - mCamX;
+    if (sx>-20&&sx<W+20) {
+      ctx.fillStyle='#555';
+      ctx.fillRect(sx, mGoal.y, 6, mGoal.h);
+      ctx.fillStyle='#2ecc71';
+      ctx.beginPath();
+      ctx.moveTo(sx+6, mGoal.y);
+      ctx.lineTo(sx+46, mGoal.y+20);
+      ctx.lineTo(sx+6, mGoal.y+40);
+      ctx.fill();
+      ctx.fillStyle='#27ae60';
+      ctx.font='20px Arial'; ctx.textAlign='center';
+      ctx.fillText('🏁', sx+26, mGoal.y+25);
+    }
+  }
+
+  // Враги
+  mEnemies.forEach(e=>{
+    if (!e.alive) return;
+    const sx = e.x - mCamX;
+    if (sx<-50||sx>W+50) return;
+    e.anim+=0.08;
+
+    ctx.save(); ctx.translate(sx+e.w/2, e.y+e.h/2);
+    if (e.vx>0) ctx.scale(-1,1);
+
+    if (e.stomped) {
+      // Расплющенный
+      ctx.globalAlpha=Math.max(0, e.stompAnim);
+      ctx.scale(1, 0.3);
+    }
+
+    if (e.type==='goomba') {
+      // Гумба — гриб-враг
+      ctx.fillStyle='#8B4513';
+      ctx.beginPath(); ctx.arc(0,-4,e.w*0.45,Math.PI,0); ctx.fill();
+      ctx.fillStyle='#D2691E';
+      ctx.fillRect(-e.w*0.45, -4, e.w*0.9, e.h*0.5);
+      // Ножки
+      const legSwing = Math.sin(e.anim)*6;
+      ctx.fillStyle='#8B4513';
+      ctx.fillRect(-14, e.h*0.22+legSwing, 10, 12);
+      ctx.fillRect(4,   e.h*0.22-legSwing, 10, 12);
+      // Глаза
+      ctx.fillStyle='white';
+      ctx.beginPath(); ctx.arc(-8,-6,5,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(8,-6,5,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#333';
+      ctx.beginPath(); ctx.arc(-7,-5,2.5,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(9,-5,2.5,0,Math.PI*2); ctx.fill();
+    } else {
+      // Шипастый враг
+      ctx.fillStyle='#9b59b6';
+      ctx.beginPath(); ctx.arc(0,0,e.w*0.4,0,Math.PI*2); ctx.fill();
+      // Шипы
+      ctx.fillStyle='#e74c3c';
+      for(let i=0;i<6;i++) {
+        const a = i/6*Math.PI*2+e.anim*0.5;
+        ctx.save(); ctx.rotate(a);
+        ctx.beginPath(); ctx.moveTo(0,-e.w*0.4); ctx.lineTo(-5,-e.w*0.65); ctx.lineTo(5,-e.w*0.65); ctx.fill();
+        ctx.restore();
+      }
+      ctx.fillStyle='white';
+      ctx.beginPath(); ctx.arc(-6,-4,4,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(6,-4,4,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#333';
+      ctx.beginPath(); ctx.arc(-5,-3,2,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(7,-3,2,0,Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+  });
+
+  // Босс
+  if (mBoss && mBoss.alive) {
+    const sx = mBoss.x - mCamX;
+    if (sx>-100&&sx<W+100) {
+      mBoss.anim+=0.07;
+      ctx.save(); ctx.translate(sx+mBoss.w/2, mBoss.y+mBoss.h/2);
+      if (mBoss.vx>0) ctx.scale(-1,1);
+
+      // Тело
+      const pulse = 1+Math.sin(mBoss.anim)*0.05;
+      ctx.scale(pulse,pulse);
+      ctx.fillStyle='#c0392b';
+      ctx.beginPath(); ctx.arc(0,0,mBoss.w*0.45,0,Math.PI*2); ctx.fill();
+      // Корона
+      ctx.fillStyle='#f1c40f';
+      ctx.beginPath();
+      ctx.moveTo(-25,-20); ctx.lineTo(-20,-40); ctx.lineTo(-10,-28);
+      ctx.lineTo(0,-44); ctx.lineTo(10,-28); ctx.lineTo(20,-40);
+      ctx.lineTo(25,-20); ctx.closePath(); ctx.fill();
+      // Глаза злые
+      ctx.fillStyle='white';
+      ctx.beginPath(); ctx.arc(-12,-4,8,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(12,-4,8,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#e74c3c';
+      ctx.beginPath(); ctx.arc(-10,-3,4,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(14,-3,4,0,Math.PI*2); ctx.fill();
+      // Брови злые
+      ctx.strokeStyle='#333'; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.moveTo(-20,0); ctx.lineTo(-4,-10); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(20,0); ctx.lineTo(4,-10); ctx.stroke();
+      // Рот
+      ctx.beginPath(); ctx.arc(0,10,12,0.2,Math.PI-0.2); ctx.stroke();
+      ctx.restore();
+
+      // HP бар
+      const barW=80, barX=sx+mBoss.w/2-barW/2;
+      ctx.fillStyle='rgba(0,0,0,0.5)';
+      ctx.fillRect(barX-2, mBoss.y-22, barW+4, 14);
+      ctx.fillStyle='#e74c3c';
+      ctx.fillRect(barX, mBoss.y-20, barW*(mBoss.hp/mBoss.maxHp), 10);
+      ctx.fillStyle='#c0392b';
+      ctx.fillRect(barX, mBoss.y-14, barW*(mBoss.hp/mBoss.maxHp), 4);
+
+      // Пули босса
+      mBoss.bullets.forEach(b=>{
+        const bx=b.x-mCamX;
+        ctx.fillStyle='#e74c3c';
+        ctx.beginPath(); ctx.arc(bx,b.y,7,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle='#ff6b6b';
+        ctx.beginPath(); ctx.arc(bx-2,b.y-2,3,0,Math.PI*2); ctx.fill();
+      });
+    }
+  }
+}
+
+// Рисуем питомца в кепке Марио
+function drawMarioPlayer() {
+  ctx.globalAlpha = mp.invincible>0 ? (Math.sin(mTick*0.5)*0.5+0.5) : 1;
+  ctx.globalCompositeOperation='source-over';
+
+  const sx = mp.x - mCamX;
+  drawPetAt(sx, mp.y, mp.w, mp.dir, mp.squash, false, false);
+
+  // Красная кепка поверх
+  ctx.save();
+  ctx.translate(sx, mp.y - mp.h*0.3);
+  if (mp.dir===-1) ctx.scale(-1,1);
+
+  // Тулья кепки
+  ctx.fillStyle='#e53e3e';
+  ctx.beginPath();
+  ctx.ellipse(0,-8, mp.w*0.48, mp.h*0.22, 0, Math.PI, 0);
+  ctx.fill();
+  // Козырёк
+  ctx.fillStyle='#c53030';
+  ctx.beginPath();
+  ctx.ellipse(mp.w*0.18, -2, mp.w*0.32, mp.h*0.1, 0.2, 0, Math.PI*2);
+  ctx.fill();
+  // Кнопка на кепке
+  ctx.fillStyle='#fff';
+  ctx.beginPath(); ctx.arc(0,-14,3,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+
+  ctx.globalAlpha=1;
+}
+
+function updateMarioPlayer() {
+  // Движение
+  if (keys['ArrowLeft']||keys['a']||keys['KeyA']) { mp.vx-=0.8; mp.dir=-1; }
+  if (keys['ArrowRight']||keys['d']||keys['KeyD']) { mp.vx+=0.8; mp.dir=1; }
+  mp.vx *= 0.82;
+  if (Math.abs(mp.vx)>7) mp.vx=7*Math.sign(mp.vx);
+
+  mp.vy += GRAVITY;
+  mp.x += mp.vx;
+  mp.y += mp.vy;
+  mp.squash += (1-mp.squash)*0.2;
+  if (mp.invincible>0) mp.invincible--;
+
+  // Камера
+  const targetCam = mp.x - W*0.35;
+  mCamX += (targetCam - mCamX)*0.1;
+  mCamX = Math.max(0, mCamX);
+
+  // Коллизии с платформами
+  mp.grounded = false;
+  mPlatforms.forEach(p=>{
+    if (mp.x+mp.w/2-8 > p.x && mp.x-mp.w/2+8 < p.x+p.w) {
+      // Сверху
+      if (mp.vy>=0 && mp.y+mp.h/2 >= p.y && mp.y+mp.h/2-mp.vy <= p.y+4) {
+        mp.y = p.y-mp.h/2; mp.vy=0; mp.grounded=true; mp.jumpCount=0;
+      }
+      // Снизу (земля)
+      if (p.type==='ground' && mp.vy<=0 && mp.y-mp.h/2 <= p.y+p.h && mp.y-mp.h/2-mp.vy >= p.y) {
+        mp.y=p.y+p.h+mp.h/2; mp.vy=0;
+      }
+    }
+  });
+
+  // Упал в яму
+  if (mp.y > H+100) loseLife();
+
+  // Сбор монет
+  mCoinsArr.forEach(c=>{
+    if (!c.done && Math.hypot(mp.x-mCamX-(c.x-mCamX), mp.y-(c.y)) < 28) {
+      c.done=true; mCoins++; mScore+=10; sfx.coin();
+      document.getElementById('uiCoins').textContent=mCoins;
+      document.getElementById('uiScore').textContent=mScore;
+      spawnFloat(c.x-mCamX, c.y-15, '+10🪙','#ffd700');
+      spawnParts(c.x-mCamX,c.y,'#ffd700',4);
+    }
+  });
+
+  // Враги
+  mEnemies.forEach(e=>{
+    if (!e.alive) return;
+    const sx=e.x-mCamX;
+
+    // Движение врага
+    e.x += e.vx;
+    // Разворот у края платформы
+    let onGround=false;
+    mPlatforms.forEach(p=>{
+      if (e.x+e.w>p.x && e.x<p.x+p.w && Math.abs(e.y+e.h-p.y)<8) onGround=true;
+    });
+    if (!onGround || e.x<20 || e.x>3900) e.vx*=-1;
+
+    if (mp.invincible===0) {
+      const pdx=Math.abs(mp.x-mCamX-sx-e.w/2), pdy=Math.abs(mp.y-(e.y+e.h/2));
+      if (pdx<mp.w/2+e.w/2-8 && pdy<mp.h/2+e.h/2-8) {
+        // Прыжок сверху — топчем
+        if (mp.vy>0 && mp.y<e.y+e.h/2) {
+          e.alive=false; e.stomped=true; e.stompAnim=1;
+          mp.vy=-10; mp.squash=0.6;
+          mScore+=50; sfx.spring();
+          spawnFloat(sx+e.w/2, e.y-10, '+50!','#2ecc71');
+          spawnParts(sx+e.w/2,e.y,'#8B4513',5);
+          document.getElementById('uiScore').textContent=mScore;
+        } else {
+          loseLife();
+        }
+      }
+    }
+  });
+
+  // Босс
+  if (mBoss && mBoss.alive) {
+    mBoss.anim+=0.05;
+    mBoss.vy+=GRAVITY*0.5;
+    mBoss.x+=mBoss.vx;
+    mBoss.y+=mBoss.vy;
+
+    mPlatforms.forEach(p=>{
+      if (mBoss.x+mBoss.w>p.x && mBoss.x<p.x+p.w) {
+        if (mBoss.vy>=0 && mBoss.y+mBoss.h>=p.y && mBoss.y+mBoss.h-mBoss.vy<=p.y+8) {
+          mBoss.y=p.y-mBoss.h; mBoss.vy=0; mBoss.grounded=true;
+          if (mBoss.grounded) mBoss.vy=-12;
+        }
+      }
+    });
+
+    if (mBoss.x<200) mBoss.vx=Math.abs(mBoss.vx);
+    if (mBoss.x>3800) mBoss.vx=-Math.abs(mBoss.vx);
+
+    // Выстрелы
+    mBoss.shootTimer++;
+    if (mBoss.shootTimer>80) {
+      mBoss.shootTimer=0;
+      const dx=mp.x-(mBoss.x+mBoss.w/2), dy=mp.y-(mBoss.y+mBoss.h/2);
+      const dist=Math.hypot(dx,dy);
+      mBoss.bullets.push({x:mBoss.x+mBoss.w/2, y:mBoss.y+mBoss.h/2, vx:dx/dist*4, vy:dy/dist*4});
+    }
+
+    mBoss.bullets.forEach(b=>{ b.x+=b.vx; b.y+=b.vy; });
+    mBoss.bullets=mBoss.bullets.filter(b=>b.x>0&&b.x<4000&&b.y<H+50);
+
+    if (mBoss.invincible>0) mBoss.invincible--;
+
+    // Игрок топчет босса
+    if (mBoss.invincible===0 && mp.vy>0 && mp.y<mBoss.y+mBoss.h/2) {
+      const bdx=Math.abs(mp.x-mCamX-(mBoss.x-mCamX+mBoss.w/2));
+      const bdy=Math.abs(mp.y-(mBoss.y+mBoss.h/2));
+      if (bdx<mp.w/2+mBoss.w/2-10 && bdy<mp.h/2+mBoss.h/2-10) {
+        mBoss.hp--;
+        mBoss.invincible=60;
+        mp.vy=-12; mp.squash=0.6;
+        sfx.spring();
+        spawnParts(mBoss.x-mCamX+mBoss.w/2, mBoss.y, '#e74c3c', 10);
+        spawnFloat(mBoss.x-mCamX+mBoss.w/2, mBoss.y-20, '💥 ХИТ!','#e74c3c');
+        if (mBoss.hp<=0) {
+          mBoss.alive=false;
+          mBossDefeated=true;
+          mScore+=500;
+          document.getElementById('uiScore').textContent=mScore;
+          spawnFloat(W/2, H/2-50, '🏆 БОСС ПОБЕЖДЁН!','#ffd700');
+          for(let i=0;i<20;i++) spawnParts(mBoss.x-mCamX+mBoss.w/2,mBoss.y,'#ffd700',3);
+          setTimeout(()=>endMario(), 1500);
+        }
+      }
+    }
+
+    // Пули босса попадают в игрока
+    if (mp.invincible===0) {
+      mBoss.bullets.forEach(b=>{
+        if (Math.hypot(mp.x-mCamX-(b.x-mCamX), mp.y-b.y)<24) loseLife();
+      });
+    }
+  }
+
+  // Финишный флаг
+  if (mGoal && !mGoal.reached) {
+    const gdx=Math.abs(mp.x-mCamX-(mGoal.x-mCamX));
+    if (gdx<40 && mp.y>mGoal.y && mp.y<mGoal.y+mGoal.h) {
+      mGoal.reached=true;
+      mScore+=200;
+      spawnFloat(W/2, H/2-50,'🎉 УРОВЕНЬ ПРОЙДЕН!','#ffd700');
+      if (!mBoss || !mBoss.alive) setTimeout(()=>endMario(), 1500);
+    }
+  }
+}
+
+function drawMarioHUD() {
+  // Жизни
+  ctx.save();
+  ctx.font='bold 15px Nunito,sans-serif';
+  ctx.fillStyle='white';
+  ctx.textAlign='left';
+  for(let i=0;i<mLives;i++) {
+    ctx.font='18px Arial';
+    ctx.fillText('❤️', 12+i*26, H-16);
+  }
+  // Уровень
+  ctx.font='bold 13px Nunito,sans-serif';
+  ctx.fillStyle='rgba(255,255,255,0.8)';
+  ctx.textAlign='center';
+  ctx.fillText(`🍄 Уровень ${mLevel+1}`, W/2, 36);
+  ctx.restore();
+}
+
+function loseLife() {
+  if (mp.invincible>0) return;
+  mLives--;
+  mp.invincible=120;
+  mp.vy=-10; mp.vx=0;
+  sfx.hit();
+  spawnParts(mp.x-mCamX, mp.y,'#e74c3c',8);
+  if (mLives<=0) {
+    gameActive=false;
+    showGameOver(mScore, mCoins, 'mario');
+  }
+}
+
+async function endMario() {
+  gameActive=false;
+  setLocalHS('mario', mScore);
+  showGameOver(mScore, mCoins, 'mario');
+  saveScore('mario', mScore);
+}
+
+function marioJump() {
+  if (mp.jumpCount<2) {
+    mp.vy=-14+mp.jumpCount*2; mp.jumpCount++;
+    mp.squash=0.65; sfx.jump();
+    spawnParts(mp.x-mCamX, mp.y+mp.h/2,'#6bcb77',3);
+  }
+}
+
+
 function showGameOver(score, coins, game) {
   document.getElementById('gameOverOverlay').style.display='flex';
   document.getElementById('goScore').textContent=score;
@@ -2119,7 +2692,8 @@ function showGameOver(score, coins, game) {
 // ── SHARE ──
 function shareScore() {
   const score = document.getElementById('goScore').textContent;
-  const game  = currentGame === 'jump' ? 'Прыгун 🐾' : 'Раннер 🌸';
+  const gameNames = { jump:'Прыгун 🐾', run:'Раннер 🌸', mario:'Грибной мир 🍄' };
+  const game  = gameNames[currentGame] || currentGame;
   const petName = customPetName || pets[selectedPet]?.name || 'Питомец';
   const text = `🎮 ${game} — ${petName} набрал ${score} очков!\nСыграй со своим питомцем 👉`;
   if (tg?.switchInlineQuery) {
@@ -2223,8 +2797,10 @@ window.addEventListener('keydown', e=>{
     if (e.key==='ArrowLeft'||e.key==='a') { jp.vx=-7; jp.dir=-1; }
     if (e.key==='ArrowRight'||e.key==='d') { jp.vx=7; jp.dir=1; }
     if ((e.key===' '||e.key==='ArrowUp') && jp.jetFuel>0) jp.jetActive=true;
-  } else {
+  } else if (currentGame==='run') {
     if (e.key===' '||e.key==='ArrowUp'||e.key==='w') doJump();
+  } else if (currentGame==='mario') {
+    if (e.key===' '||e.key==='ArrowUp'||e.key==='w') marioJump();
   }
 });
 window.addEventListener('keyup', e=>{
@@ -2244,19 +2820,37 @@ function setupBtn(el, onDown, onUp) {
 }
 
 setupBtn(document.getElementById('ctrlLeft'),
-  ()=>{ if(gameActive&&currentGame==='jump'){jp.vx=-7;jp.dir=-1;} },
-  ()=>{ if(jp.vx<0) jp.vx=0; }
+  ()=>{
+    if (!gameActive) return;
+    if (currentGame==='jump') { jp.vx=-7; jp.dir=-1; }
+    if (currentGame==='mario') { keys['ArrowLeft']=true; mp.dir=-1; }
+  },
+  ()=>{
+    if (jp.vx<0) jp.vx=0;
+    keys['ArrowLeft']=false;
+  }
 );
 setupBtn(document.getElementById('ctrlRight'),
-  ()=>{ if(gameActive&&currentGame==='jump'){jp.vx=7;jp.dir=1;} },
-  ()=>{ if(jp.vx>0) jp.vx=0; }
+  ()=>{
+    if (!gameActive) return;
+    if (currentGame==='jump') { jp.vx=7; jp.dir=1; }
+    if (currentGame==='mario') { keys['ArrowRight']=true; mp.dir=1; }
+  },
+  ()=>{
+    if (jp.vx>0) jp.vx=0;
+    keys['ArrowRight']=false;
+  }
 );
 setupBtn(document.getElementById('ctrlJump'),
-  ()=>{ if(gameActive&&currentGame==='run') doJump(); },
+  ()=>{
+    if (!gameActive) return;
+    if (currentGame==='run') doJump();
+    if (currentGame==='mario') marioJump();
+  },
   ()=>{}
 );
 
-// Canvas tap for runner
+// Canvas tap
 canvas.addEventListener('touchstart', e=>{
   e.preventDefault();
   ensureAudio();
@@ -2264,12 +2858,17 @@ canvas.addEventListener('touchstart', e=>{
   if (currentGame==='jump') {
     const tx=e.touches[0].clientX;
     if(tx<W/2){jp.vx=-7;jp.dir=-1;} else {jp.vx=7;jp.dir=1;}
-  } else doJump();
+  } else if (currentGame==='run') {
+    doJump();
+  } else if (currentGame==='mario') {
+    marioJump();
+  }
 },{passive:false});
 
 canvas.addEventListener('touchend', e=>{
   e.preventDefault();
   if (currentGame==='jump') jp.vx=0;
+  keys['ArrowLeft']=false; keys['ArrowRight']=false;
 },{passive:false});
 
 // Accelerometer (jump game)
