@@ -1627,7 +1627,8 @@ function updateJump() {
     if (p.bAnim>0) p.bAnim-=0.04;
     if (p.sAnim>0) p.sAnim-=0.1;
     if (p.y>H+30) {
-      const topY=Math.min(...jPlatforms.map(pl=>pl.y));
+      let topY = jPlatforms[0].y;
+      for (let k=1; k<jPlatforms.length; k++) if (jPlatforms[k].y < topY) topY = jPlatforms[k].y;
       const newY=topY-(85+Math.random()*55);
       const newX=Math.random()*(W-80);
       Object.assign(p,makePlatform(newX,newY));
