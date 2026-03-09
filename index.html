@@ -1838,7 +1838,7 @@ function loopRun() {
   rTick++;
   rDist += rSpeed * 0.1;
   rScore = Math.floor(rDist);
-  rSpeed = Math.min(4 + rScore/200, 11);
+  rSpeed = Math.min(4 + rScore/400, 8);
   document.getElementById('uiScore').textContent = rScore;
 
   // Clear
@@ -1926,7 +1926,18 @@ function loopRun() {
   if (rBonuses.shield>0) rBonuses.shield--;
   if (rBonuses.magnet>0) rBonuses.magnet--;
   if (rBonuses.slowmo>0) rBonuses.slowmo--;
-  updateBonusBar();
+
+  // Bonus bar UI
+  const bar = document.getElementById('bonusBar');
+  bar.innerHTML = '';
+  [{key:'shield',icon:'🛡',color:'#60a5fa'},{key:'magnet',icon:'🧲',color:'#f472b6'},{key:'slowmo',icon:'⏱',color:'#a78bfa'}].forEach(d => {
+    if (rBonuses[d.key] <= 0) return;
+    const pct = (rBonuses[d.key]/300*100).toFixed(0);
+    const pill = document.createElement('div');
+    pill.className = 'bonus-pill';
+    pill.innerHTML = `${d.icon} <div class="bonus-pill-bar"><div class="bonus-pill-fill" style="width:${pct}%;background:${d.color}"></div></div>`;
+    bar.appendChild(pill);
+  });
 
   // Draw obstacles
   rObstacles.forEach(o => {
@@ -2017,7 +2028,7 @@ function loopRun() {
   }
 
   // Phrases
-  if (rScore - lastPhraseScore >= 40 + Math.floor(Math.random()*25)) {
+  if (rScore - lastPhraseScore >= 80 + Math.floor(Math.random()*40)) {
     lastPhraseScore = rScore;
     const ph = RUN_PHRASES[Math.floor(Math.random()*RUN_PHRASES.length)];
     floats.push({ x:rp.x, y:rp.y-50, text:ph, color:'#fff', life:1.8, vy:-0.6, big:true });
