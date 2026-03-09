@@ -2167,7 +2167,7 @@ const mp = {
   invincible:0, jumpCount:0, wasGrounded:false,
 };
 
-const TILE=48, M_GRAV=0.52;
+const TILE=48, M_GRAV=0.9;
 
 // Темы — сменяются каждые 500 очков
 const M_THEMES = [
@@ -2483,7 +2483,7 @@ async function endMario() {
 
 function marioJump() {
   if(mp.jumpCount<2){
-    mp.vy=mp.jumpCount===0?-15:-11;
+    mp.vy=mp.jumpCount===0?-17:-13;
     mp.jumpCount++;
     mp.squash=0.62; sfx.jump();
     spawnParts(mp.x-mCamX,mp.y+mp.h/2,'#a5d6a7',3);
