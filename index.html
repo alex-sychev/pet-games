@@ -140,8 +140,8 @@ html, body {
   overflow: hidden;
   border: 2px solid rgba(255,255,255,0.08);
 }
-
-.pet-strip-preview img { width: 100%; height: 100%; object-fit: contain; }
+.pet-strip-preview.has-image { background: transparent; }
+.pet-strip-preview img { width: 100%; height: 100%; object-fit: contain; background: transparent; }
 
 .pet-strip-info { flex: 1; }
 .pet-strip-info .label { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
@@ -1059,8 +1059,10 @@ function updateHomePetPreview() {
   const nameText = document.getElementById('homePetNameText');
   const pet = pets[selectedPet];
   if (pet.type === 'image') {
-    preview.innerHTML = `<img src="${pet.content.src}" style="width:100%;height:100%;object-fit:contain;border-radius:50%">`;
+    preview.classList.add('has-image');
+    preview.innerHTML = `<img src="${pet.content.src}" style="width:100%;height:100%;object-fit:contain;border-radius:50%;background:transparent">`;
   } else {
+    preview.classList.remove('has-image');
     preview.innerHTML = pet.content;
   }
   // Only update the text span — NOT the whole div (keeps onclick alive)
@@ -1071,30 +1073,35 @@ function updateHomePetPreview() {
 }
 
 function compressAndSaveImg(img, originalSrc) {
-  const MAX = 160;
+  const MAX = 180;
   const canvas = document.createElement('canvas');
   const ratio = img.width / img.height;
   canvas.width  = ratio >= 1 ? MAX : Math.round(MAX * ratio);
   canvas.height = ratio >= 1 ? Math.round(MAX / ratio) : MAX;
   const c = canvas.getContext('2d');
 
-  // Проверяем нужна ли прозрачность (PNG/webp — да, jpeg — нет)
-  const isPng = originalSrc && (originalSrc.startsWith('data:image/png') || originalSrc.startsWith('data:image/webp'));
-  if (!isPng) {
-    c.fillStyle = '#ffffff';
-    c.fillRect(0, 0, canvas.width, canvas.height);
-  }
+  // Всегда очищаем в прозрачный — не заливаем чёрным/белым
+  c.clearRect(0, 0, canvas.width, canvas.height);
   c.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-  // PNG сохраняет прозрачность, jpeg — меньше весит для фото
-  const compressed = isPng
-    ? canvas.toDataURL('image/png')
-    : canvas.toDataURL('image/jpeg', 0.7);
+  // Пробуем webp (лучшее сжатие + прозрачность), иначе png
+  let data = canvas.toDataURL('image/webp', 0.8);
+  if (!data.startsWith('data:image/webp')) {
+    data = canvas.toDataURL('image/png');
+  }
 
-  try { localStorage.setItem('petImgSrc', compressed); } catch(e) {
-    // Если PNG слишком большой — попробуем webp или jpeg
-    try { localStorage.setItem('petImgSrc', canvas.toDataURL('image/jpeg', 0.7)); } catch(e2) {
-      console.warn('localStorage full');
+  try {
+    localStorage.setItem('petImgSrc', data);
+  } catch(e) {
+    // Если не влезло — пробуем меньший размер
+    try {
+      const c2 = document.createElement('canvas');
+      c2.width = Math.round(canvas.width * 0.6);
+      c2.height = Math.round(canvas.height * 0.6);
+      c2.getContext('2d').drawImage(canvas, 0, 0, c2.width, c2.height);
+      localStorage.setItem('petImgSrc', c2.toDataURL('image/png'));
+    } catch(e2) {
+      console.warn('Не удалось сохранить фото питомца');
     }
   }
 }
@@ -1427,8 +1434,11 @@ function drawPetAt(cx, cy, size, dir, squash, hasJet, showChute) {
     const ratio = img.width/img.height;
     let dw=size, dh=size;
     if (ratio>1) dh=dw/ratio; else dw=dh*ratio;
+    ctx.save();
     ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = ctx.globalAlpha; // preserve current alpha
     ctx.drawImage(img, -dw/2, -dh/2, dw, dh);
+    ctx.restore();
   }
   ctx.restore();
 }
@@ -2142,11 +2152,13 @@ function pseudoR(seed) {
 
 // ══════════════════════════════════════════════════
 //  ═══ GAME 3: ГРИБНОЙ МИР (Платформер) ═══
+
 // ══════════════════════════════════════════════════
-let mScore, mCoins, mLives, mTick, mLevel;
-let mCamX;
-let mPlatforms, mEnemies, mCoinsArr, mBoss, mGoal;
-let mLevelTheme;
+//  ═══ GAME 3: ГРИБНОЙ МИР — Бесконечный ═══
+// ══════════════════════════════════════════════════
+let mScore, mCoins, mLives, mTick;
+let mCamX, mSpeed, mSpawnX;
+let mPlatforms, mEnemies, mCoinsArr;
 let mCtrlLeft=false, mCtrlRight=false;
 
 const mp = {
@@ -2155,154 +2167,109 @@ const mp = {
   invincible:0, jumpCount:0, wasGrounded:false,
 };
 
-const TILE = 48;
-const M_GRAV = 0.52;
+const TILE=48, M_GRAV=0.52;
 
-// ── Темы уровней ──
-const LEVEL_THEMES = [
-  { name:'🌿 Луга',       sky1:'#87ceeb', sky2:'#b8e0ff',
-    ground1:'#4caf50', ground2:'#388e3c', dirt:'#6d4c41',
-    plat1:'#e67e22',   plat2:'#f39c12',  plat3:'#d35400',
-    cloud:'#fff',      mountain:'#a8d5a2' },
-  { name:'🌋 Вулкан',     sky1:'#1a0500', sky2:'#3d1100',
-    ground1:'#b71c1c', ground2:'#7f0000', dirt:'#3e2723',
-    plat1:'#bf360c',   plat2:'#e64a19',  plat3:'#8d1a00',
-    cloud:'#ff7043',   mountain:'#6d1a00' },
-  { name:'🌊 Подводный',  sky1:'#0d3b6e', sky2:'#1565c0',
-    ground1:'#00695c', ground2:'#004d40', dirt:'#1a237e',
-    plat1:'#00838f',   plat2:'#00acc1',  plat3:'#006064',
-    cloud:'#80deea',   mountain:'#00515a' },
-  { name:'🏔 Снежный',    sky1:'#b0bec5', sky2:'#eceff1',
-    ground1:'#b0bec5', ground2:'#78909c', dirt:'#455a64',
-    plat1:'#90a4ae',   plat2:'#b0bec5',  plat3:'#607d8b',
-    cloud:'#eceff1',   mountain:'#cfd8dc' },
-  { name:'🌙 Ночной лес', sky1:'#0a0a2e', sky2:'#0d1b4b',
-    ground1:'#2e7d32', ground2:'#1b5e20', dirt:'#1a0a2e',
-    plat1:'#4a148c',   plat2:'#7b1fa2',  plat3:'#311b92',
-    cloud:'#7c4dff',   mountain:'#1a0a2e' },
+// Темы — сменяются каждые 500 очков
+const M_THEMES = [
+  { name:'🌿 Луга',      sky1:'#87ceeb',sky2:'#b8e0ff', ground1:'#4caf50',ground2:'#388e3c',dirt:'#6d4c41', plat1:'#e67e22',plat2:'#f39c12',plat3:'#d35400', cloud:'#fff',    mountain:'#a8d5a2' },
+  { name:'🌋 Вулкан',    sky1:'#1a0500',sky2:'#3d1100', ground1:'#b71c1c',ground2:'#7f0000',dirt:'#3e2723', plat1:'#bf360c',plat2:'#e64a19',plat3:'#8d1a00', cloud:'#ff7043', mountain:'#6d1a00' },
+  { name:'🌊 Океан',     sky1:'#0d3b6e',sky2:'#1565c0', ground1:'#00695c',ground2:'#004d40',dirt:'#1a237e', plat1:'#00838f',plat2:'#00acc1',plat3:'#006064', cloud:'#80deea', mountain:'#00515a' },
+  { name:'🏔 Снега',     sky1:'#b0bec5',sky2:'#eceff1', ground1:'#b0bec5',ground2:'#78909c',dirt:'#455a64', plat1:'#90a4ae',plat2:'#cfd8dc',plat3:'#607d8b', cloud:'#eceff1', mountain:'#cfd8dc' },
+  { name:'🌙 Ночь',      sky1:'#0a0a2e',sky2:'#0d1b4b', ground1:'#2e7d32',ground2:'#1b5e20',dirt:'#1a0a2e', plat1:'#4a148c',plat2:'#7b1fa2',plat3:'#311b92', cloud:'#7c4dff', mountain:'#1a0a2e' },
 ];
 
-// ── Генератор уровней ──
-function generateLevel(lvl) {
-  const theme = LEVEL_THEMES[lvl % LEVEL_THEMES.length];
-  const LEN = 7000 + lvl * 1200;
-  const platforms = [], coins = [], enemies = [];
+function mTheme() { return M_THEMES[Math.floor(mScore/500) % M_THEMES.length]; }
 
-  // Земля
-  for (let x=0; x<LEN+300; x+=TILE)
-    platforms.push({ x, y:H-TILE, w:TILE, h:TILE, type:'ground', theme });
+// Генерация следующего блока мира прямо за экраном
+function spawnMarioChunk() {
+  const t = mTheme();
+  const startX = mSpawnX;
+  const chunkW = 600 + Math.floor(Math.random()*400);
 
-  // Ямы (с уровня 2)
-  const gaps = [];
-  if (lvl >= 1) {
-    for (let i=0; i<4+lvl*2; i++) {
-      const gx = 600 + i*900 + Math.floor(Math.random()*300);
-      const gw = 2+Math.floor(Math.random()*(1+lvl));
-      gaps.push({ x:gx, w:gw });
-    }
-    // Убираем земляные тайлы в ямах
-    gaps.forEach(g => {
-      for (let xi=0; xi<g.w; xi++) {
-        const tx = Math.round(g.x/TILE + xi)*TILE;
-        const idx = platforms.findIndex(p=>p.type==='ground' && Math.abs(p.x-tx)<4);
-        if (idx>=0) platforms.splice(idx,1);
-      }
-    });
+  // Яма или земля?
+  const hasGap = mScore>100 && Math.random()<0.25;
+  const gapStart = startX + 100 + Math.floor(Math.random()*200);
+  const gapW = (2+Math.floor(Math.random()*(mScore>300?4:2)))*TILE;
+
+  for (let x=startX; x<startX+chunkW; x+=TILE) {
+    if (hasGap && x>=gapStart && x<gapStart+gapW) continue;
+    mPlatforms.push({ x, y:H-TILE, w:TILE, h:TILE, type:'ground', t });
   }
 
-  // Платформы — процедурно
-  const count = 18 + lvl*6;
-  let lastX = 220, lastY = H - TILE*3;
-  for (let i=0; i<count; i++) {
-    const w = (2 + Math.floor(Math.random()*4)) * TILE;
-    lastX += TILE*3 + Math.floor(Math.random()*TILE*3);
-    lastY = Math.max(H-TILE*7, Math.min(H-TILE*2, lastY + (Math.random()<0.5?-1:1)*TILE*(1+Math.floor(Math.random()*2))));
-    platforms.push({ x:lastX, y:lastY, w, h:TILE/2, type:'platform', theme });
+  // Платформы
+  const platCount = 2+Math.floor(Math.random()*3);
+  for (let i=0; i<platCount; i++) {
+    const px = startX+80+i*(chunkW/platCount)+Math.random()*60;
+    const py = H-TILE*2 - Math.random()*(TILE*3);
+    const pw = (2+Math.floor(Math.random()*3))*TILE;
+    mPlatforms.push({ x:px, y:py, w:pw, h:TILE/2, type:'platform', t });
+    // Монеты на платформе
+    for (let cx=px+12; cx<px+pw-12; cx+=30)
+      mCoinsArr.push({ x:cx, y:py-28, r:10, done:false, anim:Math.random()*6 });
+  }
 
-    // Монеты над платформой
-    for (let cx=lastX+12; cx<lastX+w-12; cx+=32)
-      coins.push({ x:cx, y:lastY-30, r:10, done:false, anim:Math.random()*6 });
+  // Монеты в воздухе (дуга)
+  if (Math.random()<0.4) {
+    const arcX = startX+chunkW/2;
+    for (let i=0;i<5;i++)
+      mCoinsArr.push({ x:arcX-60+i*30, y:H-TILE*3-Math.sin(i/4*Math.PI)*50, r:10, done:false, anim:i*0.8 });
+  }
 
-    // Враги на платформах (не первые 2)
-    if (i>2 && Math.random()<0.4+lvl*0.05) {
-      const etype = lvl>=2 && Math.random()<0.3 ? 'spike' : 'goomba';
-      enemies.push({
-        x: lastX + w/2, y: lastY - 40,
-        w:38, h:38, vx:(Math.random()<0.5?-1:1)*(1+lvl*0.2),
-        grounded:true, anim:0, alive:true, type:etype,
-      });
-    }
-
-    // Монеты в воздухе (дуга)
-    if (Math.random()<0.3) {
-      for (let ci=0; ci<5; ci++)
-        coins.push({ x:lastX+w/2-60+ci*30, y:lastY-80-Math.sin(ci/4*Math.PI)*50, r:10, done:false, anim:ci*0.8 });
+  // Враги
+  const eCount = Math.floor(mScore/150)+1;
+  for (let i=0;i<Math.min(eCount,3);i++) {
+    if (Math.random()<0.5) {
+      const ex = startX+120+i*180+Math.random()*100;
+      const etype = mScore>200 && Math.random()<0.35 ? 'spike' : 'goomba';
+      const spd = 1+mScore/1000;
+      mEnemies.push({ x:ex, y:H-TILE-40, w:38,h:38, vx:(Math.random()<0.5?-1:1)*spd, anim:0, alive:true, type:etype });
     }
   }
 
-  // Враги на земле
-  for (let i=0; i<5+lvl*3; i++) {
-    const ex = 350 + i*500 + Math.random()*200;
-    enemies.push({
-      x:ex, y:H-TILE-40, w:38, h:38,
-      vx:(Math.random()<0.5?-1:1)*(1+lvl*0.15),
-      grounded:true, anim:0, alive:true,
-      type: lvl>=1 && i%3===0 ? 'spike' : 'goomba',
-    });
-  }
-
-  // Финишный флаг
-  const goal = { x:LEN-300, y:H-TILE*7, w:20, h:TILE*6, reached:false };
-
-  // Босс
-  const boss = {
-    x: LEN-500, y: H-TILE-90,
-    w: 70+lvl*8, h: 70+lvl*8,
-    hp: 3+lvl*2, maxHp: 3+lvl*2,
-    vx:-2-lvl*0.3, vy:0, grounded:false,
-    anim:0, alive:true, invincible:0,
-    shootTimer:0, bullets:[],
-  };
-
-  return { platforms, coins, enemies, goal, boss, theme, len:LEN };
-}
-
-// ── Загрузка уровня ──
-function loadMarioLevel(lvl) {
-  const data = generateLevel(lvl);
-  mPlatforms = data.platforms;
-  mCoinsArr  = data.coins;
-  mEnemies   = data.enemies;
-  mGoal      = data.goal;
-  mBoss      = data.boss;
-  mLevelTheme = data.theme;
-  mCamX = 0;
-  mp.x = 100; mp.y = H - TILE - mp.h/2;
-  mp.vx=0; mp.vy=0; mp.grounded=true;
-  mp.squash=1; mp.invincible=0; mp.jumpCount=0;
-  mCtrlLeft=false; mCtrlRight=false;
-  spawnFloat(W/2, H/2-60, `${data.theme.name} — Уровень ${lvl+1}!`, '#ffd700');
+  mSpawnX = startX + chunkW;
 }
 
 function initMario() {
-  mScore=0; mCoins=0; mLives=3; mTick=0; mLevel=0;
+  mScore=0; mCoins=0; mLives=3; mTick=0; mCamX=0; mSpeed=3;
+  mPlatforms=[]; mEnemies=[]; mCoinsArr=[];
+  mSpawnX=0;
+  mp.x=120; mp.y=H-TILE-mp.h/2; mp.vx=0; mp.vy=0;
+  mp.grounded=true; mp.dir=1; mp.squash=1; mp.invincible=0; mp.jumpCount=0;
+  mCtrlLeft=false; mCtrlRight=false;
+
+  // Начальный безопасный участок
+  for(let x=0;x<W+200;x+=TILE) mPlatforms.push({x,y:H-TILE,w:TILE,h:TILE,type:'ground',t:M_THEMES[0]});
+  mSpawnX = W+200;
+  // Первые чанки
+  for(let i=0;i<4;i++) spawnMarioChunk();
+
   document.getElementById('uiScore').textContent='0';
   document.getElementById('uiCoins').textContent='0';
   document.getElementById('jetpackBarWrap').style.display='none';
   document.getElementById('bonusBar').innerHTML='';
-  loadMarioLevel(0);
   rafId = requestAnimationFrame(loopMario);
 }
 
 function loopMario() {
   if (!gameActive) return;
   mTick++;
+  mScore = Math.floor(mTick/3);
+  mSpeed = Math.min(3 + mScore/400, 8);
+  document.getElementById('uiScore').textContent = mScore;
+
+  // Спавн новых чанков
+  if (mSpawnX - mCamX < W*2) spawnMarioChunk();
+  // Удаляем старые объекты
+  const cullX = mCamX - 300;
+  mPlatforms = mPlatforms.filter(p=>p.x+p.w>cullX);
+  mEnemies   = mEnemies.filter(e=>e.x>cullX);
+  mCoinsArr  = mCoinsArr.filter(c=>c.x>cullX);
+
   ctx.clearRect(0,0,W,H);
   drawMarioBg();
   drawMarioWorld();
   updateMarioPhysics();
   updateMarioEnemies();
-  updateMarioBoss();
   checkMarioCollect();
   drawMarioPlayer();
   drawMarioHUD();
@@ -2310,103 +2277,73 @@ function loopMario() {
   rafId = requestAnimationFrame(loopMario);
 }
 
-// ── Фон ──
 function drawMarioBg() {
-  const t = mLevelTheme;
+  const t = mTheme();
   const gr = ctx.createLinearGradient(0,0,0,H);
   gr.addColorStop(0,t.sky1); gr.addColorStop(1,t.sky2);
   ctx.fillStyle=gr; ctx.fillRect(0,0,W,H);
-
-  // Параллакс-горы
-  for (let i=0; i<5; i++) {
-    const mx = ((i*550 - mCamX*0.2) % (W+300) + W+300) % (W+300) - 100;
-    const mh = 80+i*25;
-    ctx.fillStyle = t.mountain;
-    ctx.beginPath();
-    ctx.moveTo(mx-70,H-TILE); ctx.lineTo(mx,H-TILE-mh); ctx.lineTo(mx+70,H-TILE);
-    ctx.fill();
+  // Горы
+  for(let i=0;i<5;i++){
+    const mx=((i*550-mCamX*0.2)%(W+400)+W+400)%(W+400)-100;
+    ctx.fillStyle=t.mountain;
+    ctx.beginPath(); ctx.moveTo(mx-70,H-TILE); ctx.lineTo(mx,H-TILE-90-i*15); ctx.lineTo(mx+70,H-TILE); ctx.fill();
   }
-
   // Облака
-  for (let i=0; i<6; i++) {
-    const cx = ((i*280+80 - mCamX*0.15) % (W+250) + W+250) % (W+250) - 80;
-    const cy = 40 + (i%3)*45;
-    const cs = 0.7+i%2*0.4;
+  for(let i=0;i<5;i++){
+    const cx=((i*300+80-mCamX*0.15)%(W+260)+W+260)%(W+260)-80;
+    const cy=40+(i%3)*40, cs=0.7+i%2*0.4;
     ctx.save(); ctx.translate(cx,cy); ctx.scale(cs,cs);
-    ctx.fillStyle = t.cloud;
-    [[-20,0,28],[8,0,20],[0,-12,16]].forEach(([dx,dy,r])=>{
-      ctx.beginPath(); ctx.arc(dx,dy,r,0,Math.PI*2); ctx.fill();
-    });
+    ctx.fillStyle=t.cloud;
+    [[-20,0,28],[8,0,20],[0,-12,16]].forEach(([dx,dy,r])=>{ ctx.beginPath(); ctx.arc(dx,dy,r,0,Math.PI*2); ctx.fill(); });
     ctx.restore();
   }
 }
 
-// ── Мир ──
 function drawMarioWorld() {
-  const t = mLevelTheme;
-
-  // Платформы
+  const t = mTheme();
   mPlatforms.forEach(p=>{
-    const sx=p.x-mCamX, sy=p.y;
-    if (sx>W+60||sx+p.w<-60) return;
-    if (p.type==='ground') {
-      ctx.fillStyle=t.dirt;  ctx.fillRect(sx,sy,p.w,p.h);
-      ctx.fillStyle=t.ground1; ctx.fillRect(sx,sy,p.w,9);
-      ctx.fillStyle=t.ground2; ctx.fillRect(sx,sy+9,p.w,5);
+    const sx=p.x-mCamX;
+    if(sx>W+60||sx+p.w<-60) return;
+    if(p.type==='ground'){
+      ctx.fillStyle=(p.t||t).dirt;       ctx.fillRect(sx,p.y,p.w,p.h);
+      ctx.fillStyle=(p.t||t).ground1;    ctx.fillRect(sx,p.y,p.w,9);
+      ctx.fillStyle=(p.t||t).ground2;    ctx.fillRect(sx,p.y+9,p.w,5);
     } else {
-      ctx.fillStyle=t.plat1; ctx.fillRect(sx,sy,p.w,p.h);
-      ctx.fillStyle=t.plat2; ctx.fillRect(sx,sy,p.w,6);
-      ctx.fillStyle=t.plat3; ctx.fillRect(sx,sy+p.h-5,p.w,5);
-      ctx.fillStyle='rgba(0,0,0,0.08)';
-      for(let bx=sx;bx<sx+p.w;bx+=16) ctx.fillRect(bx,sy,2,p.h);
+      ctx.fillStyle=(p.t||t).plat1;      ctx.fillRect(sx,p.y,p.w,p.h);
+      ctx.fillStyle=(p.t||t).plat2;      ctx.fillRect(sx,p.y,p.w,6);
+      ctx.fillStyle=(p.t||t).plat3;      ctx.fillRect(sx,p.y+p.h-5,p.w,5);
+      ctx.fillStyle='rgba(0,0,0,0.07)';
+      for(let bx=sx;bx<sx+p.w;bx+=16) ctx.fillRect(bx,p.y,2,p.h);
     }
   });
 
   // Монеты
   mCoinsArr.forEach(c=>{
-    if (c.done) return;
-    const sx=c.x-mCamX, sy=c.y;
-    if (sx<-20||sx>W+20) return;
+    if(c.done) return;
+    const sx=c.x-mCamX;
+    if(sx<-20||sx>W+20) return;
     c.anim+=0.07;
-    const bob=Math.sin(c.anim)*3;
-    ctx.save(); ctx.translate(sx,sy+bob);
-    ctx.fillStyle='#ffd700';
-    ctx.beginPath(); ctx.arc(0,0,c.r,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle='rgba(255,255,200,0.6)';
-    ctx.beginPath(); ctx.arc(-3,-3,c.r*0.38,0,Math.PI*2); ctx.fill();
+    ctx.save(); ctx.translate(sx,c.y+Math.sin(c.anim)*3);
+    ctx.fillStyle='#ffd700'; ctx.beginPath(); ctx.arc(0,0,c.r,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(255,255,200,0.6)'; ctx.beginPath(); ctx.arc(-3,-3,c.r*0.38,0,Math.PI*2); ctx.fill();
     ctx.restore();
   });
 
-  // Флаг
-  if (mGoal && !mGoal.reached) {
-    const sx=mGoal.x-mCamX, sy=mGoal.y;
-    if (sx>-30&&sx<W+30) {
-      ctx.fillStyle='#888'; ctx.fillRect(sx,sy,6,mGoal.h);
-      ctx.fillStyle='#2ecc71';
-      ctx.beginPath(); ctx.moveTo(sx+6,sy); ctx.lineTo(sx+48,sy+20); ctx.lineTo(sx+6,sy+40); ctx.fill();
-      ctx.font='20px Arial'; ctx.textAlign='center';
-      ctx.fillText('🏁',sx+26,sy+25);
-    }
-  }
-
   // Враги
   mEnemies.forEach(e=>{
-    if (!e.alive) return;
-    const sx=e.x-mCamX, sy=e.y;
-    if (sx<-60||sx>W+60) return;
+    if(!e.alive) return;
+    const sx=e.x-mCamX;
+    if(sx<-60||sx>W+60) return;
     e.anim+=0.08;
-    ctx.save(); ctx.translate(sx+e.w/2,sy+e.h/2);
-    if (e.vx>0) ctx.scale(-1,1);
-
-    if (e.type==='goomba') {
+    ctx.save(); ctx.translate(sx+e.w/2,e.y+e.h/2);
+    if(e.vx>0) ctx.scale(-1,1);
+    if(e.type==='goomba'){
       ctx.fillStyle='#795548';
       ctx.beginPath(); ctx.arc(0,-5,e.w*0.44,Math.PI,0); ctx.fill();
-      ctx.fillStyle='#a1887f';
-      ctx.fillRect(-e.w*0.44,-5,e.w*0.88,e.h*0.52);
+      ctx.fillStyle='#a1887f'; ctx.fillRect(-e.w*0.44,-5,e.w*0.88,e.h*0.52);
       const ls=Math.sin(e.anim)*5;
       ctx.fillStyle='#795548';
-      ctx.fillRect(-13,e.h*0.2+ls,10,12);
-      ctx.fillRect(3,e.h*0.2-ls,10,12);
+      ctx.fillRect(-13,e.h*0.2+ls,10,12); ctx.fillRect(3,e.h*0.2-ls,10,12);
       ctx.fillStyle='white';
       ctx.beginPath(); ctx.arc(-7,-8,5,0,Math.PI*2); ctx.fill();
       ctx.beginPath(); ctx.arc(7,-8,5,0,Math.PI*2); ctx.fill();
@@ -2414,8 +2351,7 @@ function drawMarioWorld() {
       ctx.beginPath(); ctx.arc(-6,-7,2.5,0,Math.PI*2); ctx.fill();
       ctx.beginPath(); ctx.arc(8,-7,2.5,0,Math.PI*2); ctx.fill();
     } else {
-      ctx.fillStyle='#7b1fa2';
-      ctx.beginPath(); ctx.arc(0,0,e.w*0.4,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#7b1fa2'; ctx.beginPath(); ctx.arc(0,0,e.w*0.4,0,Math.PI*2); ctx.fill();
       ctx.fillStyle='#e53935';
       for(let i=0;i<6;i++){
         const a=i/6*Math.PI*2+e.anim*0.4;
@@ -2432,299 +2368,110 @@ function drawMarioWorld() {
     }
     ctx.restore();
   });
-
-  // Босс
-  if (mBoss && mBoss.alive) {
-    const sx=mBoss.x-mCamX, sy=mBoss.y;
-    if (sx>-120&&sx<W+120) {
-      mBoss.anim+=0.06;
-      ctx.save(); ctx.translate(sx+mBoss.w/2,sy+mBoss.h/2);
-      if (mBoss.vx>0) ctx.scale(-1,1);
-      const pulse=1+Math.sin(mBoss.anim)*0.05;
-      ctx.scale(pulse,pulse);
-      const flashAlpha = mBoss.invincible>0 ? Math.sin(mBoss.invincible*0.4)*0.6+0.4 : 1;
-      ctx.globalAlpha=flashAlpha;
-
-      // Тело
-      ctx.fillStyle='#c62828';
-      ctx.beginPath(); ctx.arc(0,0,mBoss.w*0.44,0,Math.PI*2); ctx.fill();
-      // Корона
-      ctx.fillStyle='#f9a825';
-      ctx.beginPath();
-      ctx.moveTo(-26,-22); ctx.lineTo(-22,-44); ctx.lineTo(-10,-30);
-      ctx.lineTo(0,-48); ctx.lineTo(10,-30); ctx.lineTo(22,-44);
-      ctx.lineTo(26,-22); ctx.closePath(); ctx.fill();
-      ctx.fillStyle='#f44336';
-      [-14,0,14].forEach(cx=>{ ctx.beginPath(); ctx.arc(cx,-22,4,0,Math.PI*2); ctx.fill(); });
-      // Злые глаза
-      ctx.globalAlpha=1;
-      ctx.fillStyle='white';
-      ctx.beginPath(); ctx.arc(-12,-4,8,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(12,-4,8,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#e53935';
-      ctx.beginPath(); ctx.arc(-10,-3,4,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(14,-3,4,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle='#333'; ctx.lineWidth=3;
-      ctx.beginPath(); ctx.moveTo(-21,-1); ctx.lineTo(-5,-12); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(21,-1); ctx.lineTo(5,-12); ctx.stroke();
-      ctx.restore();
-
-      // HP бар
-      const bw=90, bx=sx+mBoss.w/2-bw/2;
-      ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(bx-2,sy-26,bw+4,16);
-      ctx.fillStyle='#e53935'; ctx.fillRect(bx,sy-24,bw*(mBoss.hp/mBoss.maxHp),12);
-      ctx.fillStyle='rgba(255,255,255,0.2)'; ctx.fillRect(bx,sy-24,bw*(mBoss.hp/mBoss.maxHp),4);
-      ctx.font='bold 11px sans-serif'; ctx.fillStyle='white'; ctx.textAlign='center';
-      ctx.fillText(`👑 Босс  ${mBoss.hp}/${mBoss.maxHp}`, sx+mBoss.w/2, sy-30);
-    }
-
-    // Пули
-    mBoss.bullets.forEach(b=>{
-      const bsx=b.x-mCamX, bsy=b.y;
-      ctx.fillStyle='#ef9a9a';
-      ctx.beginPath(); ctx.arc(bsx,bsy,7,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#c62828';
-      ctx.beginPath(); ctx.arc(bsx,bsy,4,0,Math.PI*2); ctx.fill();
-    });
-  }
 }
 
-// ── Питомец (без кепки) ──
 function drawMarioPlayer() {
   ctx.globalAlpha = mp.invincible>0 ? (Math.sin(mTick*0.4)*0.5+0.5) : 1;
   ctx.globalCompositeOperation='source-over';
-  const sx=mp.x-mCamX, sy=mp.y;
-  const bob = mp.grounded ? Math.sin(mTick*0.3)*(Math.abs(mp.vx)>0.5?2:0) : 0;
-  drawPetAt(sx, sy+bob, mp.w, mp.dir, mp.squash, false, false);
+  const bob = mp.grounded&&Math.abs(mp.vx)>0.5 ? Math.sin(mTick*0.35)*2 : 0;
+  drawPetAt(mp.x-mCamX, mp.y+bob, mp.w, mp.dir, mp.squash, false, false);
   ctx.globalAlpha=1;
 }
 
-// ── Физика и управление ──
 function updateMarioPhysics() {
-  // Управление
-  const onGround = mp.grounded;
-  const accel = onGround ? 1.1 : 0.55;
-  const decel = onGround ? 0.78 : 0.92;
+  const onGround=mp.grounded;
+  const accel=onGround?1.1:0.55, decel=onGround?0.78:0.92;
+  if(mCtrlLeft ||keys['ArrowLeft'] ||keys['a']||keys['KeyA']) { mp.vx-=accel; mp.dir=-1; }
+  if(mCtrlRight||keys['ArrowRight']||keys['d']||keys['KeyD']) { mp.vx+=accel; mp.dir=1;  }
+  else if(!mCtrlLeft&&!(keys['ArrowLeft']||keys['a']||keys['KeyA'])) mp.vx*=decel;
+  mp.vx=Math.max(-7.5,Math.min(7.5,mp.vx));
+  if(Math.abs(mp.vx)<0.1) mp.vx=0;
 
-  if (mCtrlLeft  || keys['ArrowLeft']  || keys['a'] || keys['KeyA'])  { mp.vx -= accel; mp.dir=-1; }
-  if (mCtrlRight || keys['ArrowRight'] || keys['d'] || keys['KeyD']) { mp.vx += accel; mp.dir=1;  }
-  else if (!mCtrlLeft && !(keys['ArrowLeft']||keys['a']||keys['KeyA'])) mp.vx *= decel;
+  mp.vy=Math.min(mp.vy+M_GRAV,16);
+  mp.x+=mp.vx; mp.y+=mp.vy;
+  if(mp.x-mCamX<60) { mp.x=mCamX+60; mp.vx=0; }
 
-  const maxSpd = 7.5;
-  if (mp.vx>maxSpd)  mp.vx=maxSpd;
-  if (mp.vx<-maxSpd) mp.vx=-maxSpd;
-  if (Math.abs(mp.vx)<0.1) mp.vx=0;
+  // Камера следует за персонажем
+  const target=mp.x-W*0.35;
+  mCamX+=(Math.max(0,target)-mCamX)*0.12;
 
-  mp.vy += M_GRAV;
-  if (mp.vy>16) mp.vy=16;
+  mp.wasGrounded=mp.grounded; mp.grounded=false;
+  mp.squash+=(1-mp.squash)*0.18;
 
-  mp.x += mp.vx;
-  mp.y += mp.vy;
-
-  // Не уходим за левый край
-  if (mp.x<50) { mp.x=50; mp.vx=0; }
-
-  // Камера
-  const targetCamX = mp.x - W*0.38;
-  mCamX += (Math.max(0,targetCamX) - mCamX)*0.12;
-
-  // Анимация сжатия
-  mp.wasGrounded = mp.grounded;
-  mp.grounded = false;
-  mp.squash += (1-mp.squash)*0.18;
-
-  // Коллизии
   mPlatforms.forEach(p=>{
-    const pl=p.x, pr=p.x+p.w, pt=p.y, pb=p.y+p.h;
-    const ml=mp.x-mp.w/2+4, mr=mp.x+mp.w/2-4, mt=mp.y-mp.h/2, mb=mp.y+mp.h/2;
-    if (mr<pl||ml>pr) return;
-    // Приземление сверху
-    if (mp.vy>=0 && mb>=pt && mb-mp.vy<=pt+6) {
-      mp.y=pt-mp.h/2; mp.vy=0; mp.grounded=true; mp.jumpCount=0;
-      if (!mp.wasGrounded) mp.squash=1.25;
+    const ml=mp.x-mp.w/2+5, mr=mp.x+mp.w/2-5, mt=mp.y-mp.h/2, mb=mp.y+mp.h/2;
+    if(mr<p.x||ml>p.x+p.w) return;
+    if(mp.vy>=0&&mb>=p.y&&mb-mp.vy<=p.y+8){
+      mp.y=p.y-mp.h/2; mp.vy=0; mp.grounded=true; mp.jumpCount=0;
+      if(!mp.wasGrounded) mp.squash=1.25;
     }
-    // Удар снизу (только земля)
-    if (p.type==='ground' && mp.vy<0 && mt<=pb && mt-mp.vy>=pb-4) {
-      mp.y=pb+mp.h/2; mp.vy=2;
+    if(p.type==='ground'&&mp.vy<0&&mt<=p.y+p.h&&mt-mp.vy>=p.y+p.h-4){
+      mp.y=p.y+p.h+mp.h/2; mp.vy=2;
     }
-    // Стены
-    if (mb>pt+6 && mt<pb-4) {
-      if (mp.vx>0 && mr>=pr && ml<pr) { mp.x=pr-mp.w/2+4; mp.vx=0; }
-      if (mp.vx<0 && ml<=pl && mr>pl) { mp.x=pl+mp.w/2-4; mp.vx=0; }
+    if(mb>p.y+8&&mt<p.y+p.h-4){
+      if(mp.vx>0&&mr>=p.x+p.w&&ml<p.x+p.w){ mp.x=p.x+p.w-mp.w/2+5; mp.vx=0; }
+      if(mp.vx<0&&ml<=p.x&&mr>p.x){ mp.x=p.x+mp.w/2-5; mp.vx=0; }
     }
   });
 
-  // Упал в яму
-  if (mp.y > H+150) mLoseLife();
+  if(mp.y>H+150) mLoseLife();
 }
 
 function updateMarioEnemies() {
   mEnemies.forEach(e=>{
-    if (!e.alive) return;
+    if(!e.alive) return;
     const sx=e.x-mCamX;
-    if (sx<-200||sx>W+200) return;
-
-    e.x += e.vx;
-
-    // Разворот у края
+    if(sx<-200||sx>W+200) return;
+    e.x+=e.vx;
     let hasGround=false;
-    mPlatforms.forEach(p=>{
-      if (e.x>p.x-5&&e.x<p.x+p.w+5 && Math.abs(e.y+e.h-p.y)<12) hasGround=true;
-    });
-    if (!hasGround || e.x<30 || e.x>9800) e.vx*=-1;
-
-    // Столкновение с игроком
-    if (mp.invincible===0) {
-      const dx=Math.abs(mp.x-(e.x+e.w/2));
-      const dy=Math.abs(mp.y-(e.y+e.h/2));
-      if (dx<mp.w/2+e.w/2-8 && dy<mp.h/2+e.h/2-8) {
-        if (mp.vy>0 && mp.y<e.y+e.h/2-4) {
-          // Топчем врага
-          e.alive=false;
-          mp.vy=-11; mp.squash=0.6;
+    mPlatforms.forEach(p=>{ if(e.x>p.x-5&&e.x<p.x+p.w+5&&Math.abs(e.y+e.h-p.y)<12) hasGround=true; });
+    if(!hasGround||e.x<mCamX-100) e.vx*=-1;
+    if(mp.invincible===0){
+      const dx=Math.abs(mp.x-(e.x+e.w/2)), dy=Math.abs(mp.y-(e.y+e.h/2));
+      if(dx<mp.w/2+e.w/2-8&&dy<mp.h/2+e.h/2-8){
+        if(mp.vy>0&&mp.y<e.y+e.h/2-4){
+          e.alive=false; mp.vy=-11; mp.squash=0.6;
           mScore+=50; sfx.spring();
+          document.getElementById('uiScore').textContent=mScore;
           spawnFloat(sx+e.w/2,e.y-12,'+50','#2ecc71');
           spawnParts(sx+e.w/2,e.y,'#795548',5);
-          document.getElementById('uiScore').textContent=mScore;
-        } else {
-          mLoseLife();
-        }
+        } else { mLoseLife(); }
       }
     }
   });
-}
-
-function updateMarioBoss() {
-  if (!mBoss||!mBoss.alive) return;
-  const b=mBoss;
-  b.vy += M_GRAV*0.6;
-  b.x  += b.vx;
-  b.y  += b.vy;
-
-  mPlatforms.forEach(p=>{
-    if (b.x+b.w>p.x && b.x<p.x+p.w) {
-      if (b.vy>=0 && b.y+b.h>=p.y && b.y+b.h-b.vy<=p.y+10) {
-        b.y=p.y-b.h; b.vy=-(10+mLevel*0.5); b.grounded=true;
-      }
-    }
-  });
-
-  if (b.x<100) b.vx=Math.abs(b.vx);
-  const blen = mPlatforms.reduce((m,p)=>Math.max(m,p.x+p.w),0)-200;
-  if (b.x>blen) b.vx=-Math.abs(b.vx);
-
-  if (b.invincible>0) b.invincible--;
-
-  // Стрельба
-  b.shootTimer++;
-  const shootRate = Math.max(40, 90 - mLevel*8);
-  if (b.shootTimer>shootRate) {
-    b.shootTimer=0;
-    const dx=mp.x-(b.x+b.w/2), dy=mp.y-(b.y+b.h/2);
-    const dist=Math.hypot(dx,dy)||1;
-    const spd=3.5+mLevel*0.3;
-    b.bullets.push({x:b.x+b.w/2,y:b.y+b.h/2,vx:dx/dist*spd,vy:dy/dist*spd});
-    // На высоких уровнях стреляет 3 пули веером
-    if (mLevel>=3) {
-      [-0.3,0.3].forEach(angle=>{
-        const vx2=dx/dist*spd*Math.cos(angle)-dy/dist*spd*Math.sin(angle);
-        const vy2=dx/dist*spd*Math.sin(angle)+dy/dist*spd*Math.cos(angle);
-        b.bullets.push({x:b.x+b.w/2,y:b.y+b.h/2,vx:vx2,vy:vy2});
-      });
-    }
-  }
-
-  b.bullets.forEach(bl=>{ bl.x+=bl.vx; bl.y+=bl.vy; });
-  b.bullets=b.bullets.filter(bl=>bl.x>0&&bl.x<12000&&bl.y<H+100);
-
-  // Игрок топчет босса
-  if (b.invincible===0) {
-    const dx=Math.abs(mp.x-(b.x+b.w/2));
-    const dy=Math.abs(mp.y-(b.y+b.h/2));
-    if (dx<mp.w/2+b.w/2-10 && dy<mp.h/2+b.h/2-10) {
-      if (mp.vy>0 && mp.y<b.y+b.h/2-4) {
-        b.hp--; b.invincible=70;
-        mp.vy=-13; mp.squash=0.6; sfx.spring();
-        spawnParts(b.x-mCamX+b.w/2,b.y,'#ef9a9a',10);
-        spawnFloat(b.x-mCamX+b.w/2,b.y-20,'💥 ХИТ!','#e53935');
-        if (b.hp<=0) {
-          b.alive=false;
-          mScore+=500+mLevel*100;
-          document.getElementById('uiScore').textContent=mScore;
-          for(let i=0;i<25;i++) spawnParts(b.x-mCamX+b.w/2,b.y,'#ffd700',2);
-          spawnFloat(W/2,H/2-60,'🏆 БОСС ПОБЕЖДЁН!','#ffd700');
-          setTimeout(()=>nextMarioLevel(), 2000);
-        }
-      } else if (mp.invincible===0) {
-        mLoseLife();
-      }
-    }
-    // Пули
-    if (mp.invincible===0) {
-      b.bullets.forEach(bl=>{
-        if (Math.hypot(mp.x-mCamX-(bl.x-mCamX), mp.y-(bl.y))<22) mLoseLife();
-      });
-    }
-  }
 }
 
 function checkMarioCollect() {
-  // Монеты
   mCoinsArr.forEach(c=>{
-    if (c.done) return;
-    if (Math.abs(mp.x-c.x)<26 && Math.abs(mp.y-c.y)<26) {
+    if(c.done) return;
+    if(Math.abs(mp.x-c.x)<26&&Math.abs(mp.y-c.y)<26){
       c.done=true; mCoins++; mScore+=10; sfx.coin();
       document.getElementById('uiCoins').textContent=mCoins;
       document.getElementById('uiScore').textContent=mScore;
       spawnFloat(c.x-mCamX,c.y-15,'+10','#ffd700');
     }
   });
-
-  // Флаг
-  if (mGoal&&!mGoal.reached) {
-    if (Math.abs(mp.x-mGoal.x)<40 && mp.y>mGoal.y && mp.y<mGoal.y+mGoal.h) {
-      mGoal.reached=true;
-      mScore+=200;
-      spawnFloat(W/2,H/2-50,'🎉 УРОВЕНЬ ПРОЙДЕН!','#ffd700');
-      if (!mBoss||!mBoss.alive) setTimeout(()=>nextMarioLevel(), 1500);
-    }
-  }
 }
 
 function drawMarioHUD() {
   ctx.save();
-  // Жизни
   ctx.font='20px Arial'; ctx.textAlign='left';
   for(let i=0;i<mLives;i++) ctx.fillText('❤️',12+i*28,H-14);
-  // Уровень
+  const t=mTheme();
   ctx.font='bold 13px Nunito,sans-serif';
   ctx.fillStyle='rgba(255,255,255,0.9)';
   ctx.textAlign='center';
-  ctx.fillText(`${mLevelTheme?.name||''} · Ур. ${mLevel+1}`,W/2,36);
+  ctx.fillText(t.name, W/2, 36);
   ctx.restore();
 }
 
 function mLoseLife() {
-  if (mp.invincible>0) return;
+  if(mp.invincible>0) return;
   mLives--;
   mp.invincible=120; mp.vy=-10; mp.vx=0;
   sfx.hit();
   spawnParts(mp.x-mCamX,mp.y,'#e53935',8);
-  if (mLives<=0) { gameActive=false; showGameOver(mScore,mCoins,'mario'); }
-}
-
-function nextMarioLevel() {
-  if (!gameActive) return;
-  mLevel++;
-  if (mLevel>=LEVEL_THEMES.length*3) {
-    // Победа — все уровни пройдены!
-    gameActive=false;
-    spawnFloat(W/2,H/2-80,'🌟 ВЫ ПРОШЛИ ВСЁ! 🌟','#ffd700');
-    setTimeout(()=>{ setLocalHS('mario',mScore); showGameOver(mScore,mCoins,'mario'); },2000);
-    return;
-  }
-  mLives = Math.min(mLives+1, 5); // +1 жизнь за уровень
-  loadMarioLevel(mLevel);
+  if(mLives<=0){ gameActive=false; showGameOver(mScore,mCoins,'mario'); }
 }
 
 async function endMario() {
@@ -2735,14 +2482,13 @@ async function endMario() {
 }
 
 function marioJump() {
-  if (mp.jumpCount<2) {
-    mp.vy = mp.jumpCount===0 ? -15 : -11;
+  if(mp.jumpCount<2){
+    mp.vy=mp.jumpCount===0?-15:-11;
     mp.jumpCount++;
     mp.squash=0.62; sfx.jump();
     spawnParts(mp.x-mCamX,mp.y+mp.h/2,'#a5d6a7',3);
   }
 }
-
 
 function showGameOver(score, coins, game) {
   document.getElementById('gameOverOverlay').style.display='flex';
