@@ -1312,11 +1312,20 @@ function updateParticles() {
     t.y+=t.vy; t.life-=0.022;
     if (t.life<=0) return false;
     pCtx.save();
-    pCtx.globalAlpha = t.life;
+    pCtx.globalAlpha = Math.min(t.life, 1);
     pCtx.fillStyle = t.color;
-    pCtx.font = 'bold 15px Nunito,sans-serif';
-    pCtx.textAlign = 'center';
-    pCtx.fillText(t.text, t.x, t.y);
+    if (t.big) {
+      pCtx.font = 'bold 17px Nunito,sans-serif';
+      pCtx.strokeStyle = 'rgba(0,0,0,0.5)';
+      pCtx.lineWidth = 3;
+      pCtx.textAlign = 'center';
+      pCtx.strokeText(t.text, t.x, t.y);
+      pCtx.fillText(t.text, t.x, t.y);
+    } else {
+      pCtx.font = 'bold 15px Nunito,sans-serif';
+      pCtx.textAlign = 'center';
+      pCtx.fillText(t.text, t.x, t.y);
+    }
     pCtx.restore();
     return true;
   });
@@ -1791,6 +1800,7 @@ function initRun() {
   rScore=0; rCoins=0; rDist=0;
   rBgCache = null; // force rebuild for new screen size
   rBonuses = { shield:0, magnet:0, slowmo:0 };
+  lastPhraseScore = -50;
   rGroundY = H - 100;
   rSpeed = 4;
   document.getElementById('uiScore').textContent='0';
@@ -1810,6 +1820,34 @@ function initRun() {
   rafId=requestAnimationFrame(loopRun);
 }
 
+const RUN_PHRASES = [
+  '🐾 Я так быстро!',
+  '💨 Подождите меня!',
+  '🦴 Вижу косточку!',
+  '😤 Я не устал!',
+  '🐕 ГАВ ГАВ ГАВ!',
+  '💅 Смотри как я!',
+  '😱 ЧТО ЭТО БЫЛО?!',
+  '🌸 Красота вокруг!',
+  '🍪 Дай печеньку!',
+  '😮‍💨 Уфффф...',
+  '🏃 Я чемпион!',
+  '👀 За мной следят?',
+  '🐾 Лапки устали...',
+  '⚡ СКОРОСТЬ!',
+  '🤩 Я ЗВЕЗДА!',
+];
+let lastPhraseScore = -50;
+
+function maybeShowPhrase() {
+  if (rScore - lastPhraseScore >= 40 + Math.floor(Math.random()*30)) {
+    lastPhraseScore = rScore;
+    const phrase = RUN_PHRASES[Math.floor(Math.random()*RUN_PHRASES.length)];
+    // Longer-lived float for phrases
+    floats.push({ x: rp.x, y: rp.y - 45, text: phrase, color: '#fff', life: 1.8, vy: -0.7, big: true });
+  }
+}
+
 function loopRun() {
   if (!gameActive) return;
   rTick++;
@@ -1820,16 +1858,18 @@ function loopRun() {
 
   ctx.clearRect(0,0,W,H);
   drawRunBg();
+  drawRunGround();
+  maybeShowPhrase();
   updateRunEntities();
   drawRunObstacles();
   drawRunCoins2();
   drawBonusItems();
   updateRunPlayer();
 
-  // Running bob animation: body bobs up/down when on ground
+  // Running bob animation
   const runBob = rp.grounded ? Math.sin(rTick * 0.35) * 4 : 0;
 
-  // Speed lines behind dog when running fast
+  // Speed lines
   if (rp.grounded && rSpeed > 5) {
     ctx.save();
     ctx.globalAlpha = Math.min((rSpeed - 5) / 7, 0.5);
@@ -1846,11 +1886,14 @@ function loopRun() {
     ctx.restore();
   }
 
-  // Dust puffs when running on ground
+  // Dust puffs
   if (rp.grounded && rTick % 8 === 0) {
     spawnParts(rp.x - 20, rGroundY - 4, 'rgba(200,180,200,0.5)', 2);
   }
 
+  // Always reset before drawing pet
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
   drawPetAt(rp.x, rp.y + runBob, rp.w, -1, rp.squash, false, false);
 
   updateParticles();
