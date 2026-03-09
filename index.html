@@ -1430,10 +1430,7 @@ function initJump() {
   jp.x=W/2; jp.y=H*0.7; jp.vx=0; jp.vy=-13;
   jp.squash=1; jp.invincible=0; jp.jetFuel=0; jp.jetActive=false;
   buildJumpPlatforms();
-  // Pre-build all world caches now (not mid-game) to avoid freeze
-  buildStarCache(30);
-  buildCityCache();
-  buildStarCache(60);
+  jBgGradientCache = null;
   rafId = requestAnimationFrame(loopJump);
 }
 
@@ -1519,57 +1516,30 @@ function buildCityCache() {
 }
 
 let jBgGradientCache = null;
-let jBgWorld = null;
 
 function loopJump() {
   if (!gameActive) return;
 
   const world = getWorld();
 
-  // World transition
+  // World badge notification only
   if (world.name !== lastWorldName) {
     lastWorldName = world.name;
     const badge = document.getElementById('worldBadge');
     badge.textContent = world.name;
     badge.classList.add('show');
     setTimeout(() => badge.classList.remove('show'), 2500);
-    // Build caches in next idle frame to avoid freeze
-    setTimeout(() => {
-      if (world.minScore >= 100) buildCityCache();
-      if (world.minScore >= 250) buildStarCache(60);
-      else if (world.minScore >= 100) buildStarCache(30);
-    }, 0);
+    jBgGradientCache = null; // reset cache on world change
   }
 
-  // Background gradient — cache per world
-  if (jBgWorld !== world.name) {
+  // Background — cached gradient, no stars/city overlays
+  if (!jBgGradientCache) {
     jBgGradientCache = ctx.createLinearGradient(0,0,0,H);
     jBgGradientCache.addColorStop(0, world.bg1);
     jBgGradientCache.addColorStop(1, world.bg2);
-    jBgWorld = world.name;
   }
-  ctx.fillStyle=jBgGradientCache; ctx.fillRect(0,0,W,H);
-
-  // Draw cached stars (night/space)
-  if (starCanvas && jScore >= 100) {
-    ctx.drawImage(starCanvas, 0, 0);
-  }
-
-  // Nebula glow (space) — simple, cheap
-  if (jScore >= 250) {
-    ctx.save();
-    ctx.globalAlpha = 0.08;
-    ctx.fillStyle = '#8b5cf6';
-    ctx.beginPath(); ctx.arc(W*0.7, H*0.3, 150, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#06b6d4';
-    ctx.beginPath(); ctx.arc(W*0.2, H*0.6, 120, 0, Math.PI*2); ctx.fill();
-    ctx.restore();
-  }
-
-  // Night city silhouette — draw cached
-  if (cityCanvas && jScore >= 100 && jScore < 250) {
-    ctx.drawImage(cityCanvas, 0, 0);
-  }
+  ctx.fillStyle = jBgGradientCache;
+  ctx.fillRect(0,0,W,H);
 
   updateJump();
   drawJumpPlatforms(world);
