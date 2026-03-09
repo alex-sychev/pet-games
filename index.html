@@ -771,6 +771,10 @@ html, body {
       <input type="text" id="petNameInput" maxlength="16" placeholder="Имя питомца"
         style="display:none;background:rgba(255,255,255,0.1);border:1.5px solid var(--accent3);border-radius:8px;color:white;font-family:inherit;font-size:15px;font-weight:800;padding:3px 8px;width:140px;outline:none;"
         onblur="savePetName()" onkeydown="if(event.key==='Enter')this.blur()">
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <button id="genderBoy" onclick="setPetGender('boy')" style="background:rgba(99,179,237,0.2);border:1.5px solid #63b3ed;border-radius:20px;padding:3px 10px;font-size:12px;font-weight:700;color:#90cdf4;cursor:pointer;font-family:inherit">♂ Мальчик</button>
+        <button id="genderGirl" onclick="setPetGender('girl')" style="background:rgba(245,114,182,0.2);border:1.5px solid #f472b6;border-radius:20px;padding:3px 10px;font-size:12px;font-weight:700;color:#f9a8d4;cursor:pointer;font-family:inherit">♀ Девочка</button>
+      </div>
     </div>
     <label for="homeFileInput" class="pet-strip-btn">📸 Сменить</label>
     <input type="file" id="homeFileInput" accept="image/png,image/jpeg,image/webp">
@@ -1792,13 +1796,46 @@ let lastPhraseScore = -50;
 
 const rp = { x:0, y:0, vy:0, grounded:false, squash:1, invincible:0, w:50, h:50, jumpCount:0 };
 
-const RUN_PHRASES = [
-  '🐾 Я так быстро!','💨 Подождите меня!','🦴 Вижу косточку!',
-  '😤 Я не устал!','🐕 ГАВ ГАВ ГАВ!','💅 Смотри как я!',
-  '😱 ЧТО ЭТО БЫЛО?!','🍪 Дай печеньку!','😮‍💨 Уфффф...',
-  '🏃 Я чемпион!','👀 За мной следят?','🐾 Лапки устали...',
-  '⚡ СКОРОСТЬ!','🤩 Я ЗВЕЗДА!',
+const RUN_PHRASES_BOY = [
+  '🐾 Я так быстро!', '💨 Не догонишь!', '🦴 Вижу косточку!',
+  '😤 Я не устал!', '🐕 ГАВ ГАВ ГАВ!', '💪 Я сильнейший!',
+  '😱 ЧТО ЭТО БЫЛО?!', '🍪 Дай печеньку!', '😮‍💨 Уфффф...',
+  '🏆 Я чемпион!', '👀 Кто за мной?', '🐾 Лапки устали...',
+  '⚡ СКОРОСТЬ!', '😎 Я крутой!', '🚀 Вперёд!',
 ];
+
+const RUN_PHRASES_GIRL = [
+  '🌸 Я так быстро!', '💨 Попробуй догони!', '🎀 Красота не помеха!',
+  '💅 Даже не вспотела!', '🐩 Я принцесса!', '✨ Смотри как я!',
+  '😱 ЧТО ЭТО ТАКОЕ?!', '🍰 Хочу тортик!', '😮‍💨 Устала чуточку...',
+  '🏅 Я лучшая!', '💕 Все смотрят на меня!', '🌺 Лапки болят...',
+  '⚡ ВПЕРЁД КРАСАВИЦА!', '🤩 Я ЗВЕЗДА!', '🦋 Лечу!',
+];
+
+let petGender = localStorage.getItem('petGender') || 'boy';
+
+function setPetGender(g) {
+  petGender = g;
+  localStorage.setItem('petGender', g);
+  updateGenderButtons();
+}
+
+function updateGenderButtons() {
+  const boy  = document.getElementById('genderBoy');
+  const girl = document.getElementById('genderGirl');
+  if (!boy || !girl) return;
+  if (petGender === 'boy') {
+    boy.style.background  = 'rgba(99,179,237,0.5)';
+    boy.style.borderColor = '#63b3ed';
+    girl.style.background = 'rgba(245,114,182,0.1)';
+    girl.style.borderColor = 'rgba(245,114,182,0.4)';
+  } else {
+    girl.style.background  = 'rgba(245,114,182,0.5)';
+    girl.style.borderColor = '#f472b6';
+    boy.style.background  = 'rgba(99,179,237,0.1)';
+    boy.style.borderColor = 'rgba(99,179,237,0.4)';
+  }
+}
 
 function initRun() {
   rScore=0; rCoins=0; rDist=0; rTick=0; rSpeed=4;
@@ -2030,7 +2067,8 @@ function loopRun() {
   // Phrases
   if (rScore - lastPhraseScore >= 80 + Math.floor(Math.random()*40)) {
     lastPhraseScore = rScore;
-    const ph = RUN_PHRASES[Math.floor(Math.random()*RUN_PHRASES.length)];
+    const phrases = petGender === 'girl' ? RUN_PHRASES_GIRL : RUN_PHRASES_BOY;
+    const ph = phrases[Math.floor(Math.random()*phrases.length)];
     floats.push({ x:rp.x, y:rp.y-50, text:ph, color:'#fff', life:1.8, vy:-0.6, big:true });
   }
 
@@ -2262,6 +2300,9 @@ function onMotion(e) {
 
 // Pet name input
 document.getElementById('petNameInput').addEventListener('blur', savePetName);
+
+// Gender buttons
+updateGenderButtons();
 
 // Load saved pet then refresh UI
 loadSavedPet(() => {
