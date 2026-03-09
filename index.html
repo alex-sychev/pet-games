@@ -1779,8 +1779,8 @@ async function endJump() {
   gameActive=false;
   sfx.die();
   setLocalHS('jump', jScore);
-  await saveScore('jump', jScore);
   showGameOver(jScore, jCoins, 'jump');
+  saveScore('jump', jScore); // фоновое сохранение
 }
 
 
@@ -1923,11 +1923,12 @@ function loopRun() {
   ctx.fillRect(0, rGroundY, W, 10);
 
   // Scrolling flowers
-  const ftypes = ['🌸','🌺','🌼'];
-  for(let i=0;i<6;i++) {
-    const fx = ((pseudoR(i*31)*W + W - (rDist*20)%(W*3)) % W + W) % W;
-    ctx.font='14px Arial'; ctx.textAlign='center';
-    ctx.fillText(ftypes[i%3], fx, rGroundY+12);
+  const ftypes = ['🌸','🌺','🌼','🌷'];
+  for(let i=0;i<7;i++) {
+    const offset = (rTick * 1.2 + pseudoR(i*31) * W * 4) % (W * 4);
+    const fx = W - (offset % W);
+    ctx.font='15px Arial'; ctx.textAlign='center';
+    ctx.fillText(ftypes[i%ftypes.length], fx, rGroundY+13);
   }
 
   // Spawn obstacles
@@ -2093,8 +2094,8 @@ function doJump() {
 async function endRun() {
   gameActive = false;
   setLocalHS('run', rScore);
-  await saveScore('run', rScore);
   showGameOver(rScore, rCoins, 'run');
+  saveScore('run', rScore); // фоновое сохранение, не блокирует UI
 }
 
 function pseudoR(seed) {
