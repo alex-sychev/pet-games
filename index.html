@@ -1373,13 +1373,13 @@ function drawPetAt(cx, cy, size, dir, squash, hasJet, showChute) {
   if (pet.type==='emoji') {
     ctx.font = `${size*0.85}px Arial`;
     ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillStyle = '#000'; // force solid fill context
     ctx.fillText(pet.content, 0, 0);
   } else {
     const img = pet.content;
     const ratio = img.width/img.height;
     let dw=size, dh=size;
     if (ratio>1) dh=dw/ratio; else dw=dh*ratio;
+    ctx.globalCompositeOperation = 'source-over';
     ctx.drawImage(img, -dw/2, -dh/2, dw, dh);
   }
   ctx.restore();
@@ -1920,15 +1920,45 @@ function drawRunBg() {
     ctx.restore();
   });
 
-  // Flying butterflies
+  // Flying butterflies — drawn with canvas (no emoji flicker)
   rMountains.forEach((b,i)=>{
     b.x-=b.speed*0.6;
     if(b.x<-40) { b.x=W+20; b.y=40+Math.random()*(rGroundY*0.5); }
-    const flutter=Math.sin(rTick*0.15+i*1.2)*0.4;
-    ctx.save(); ctx.translate(b.x, b.y+Math.sin(rTick*0.04+i)*8);
-    ctx.rotate(flutter);
-    ctx.font='22px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText('🦋',0,0);
+    const flutter=Math.sin(rTick*0.15+i*1.2);
+    const by = b.y+Math.sin(rTick*0.04+i)*8;
+    ctx.save();
+    ctx.translate(b.x, by);
+    ctx.globalAlpha = 0.85;
+    // Left wing
+    ctx.save();
+    ctx.scale(-1, 1);
+    ctx.rotate(flutter * 0.5);
+    ctx.fillStyle = '#f472b6';
+    ctx.beginPath();
+    ctx.ellipse(8, -2, 11, 7, 0.4, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,200,230,0.6)';
+    ctx.beginPath();
+    ctx.ellipse(8, -2, 6, 4, 0.4, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+    // Right wing
+    ctx.save();
+    ctx.rotate(-flutter * 0.5);
+    ctx.fillStyle = '#f472b6';
+    ctx.beginPath();
+    ctx.ellipse(8, -2, 11, 7, -0.4, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,200,230,0.6)';
+    ctx.beginPath();
+    ctx.ellipse(8, -2, 6, 4, -0.4, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+    // Body
+    ctx.fillStyle = '#9d174d';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 2.5, 7, 0, 0, Math.PI*2);
+    ctx.fill();
     ctx.restore();
   });
 }
