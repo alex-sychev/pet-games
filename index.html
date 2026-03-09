@@ -2253,7 +2253,7 @@ function initMario() {
 function loopMario() {
   if (!gameActive) return;
   mTick++;
-  mScore = Math.floor(mTick/3);
+  mScore = Math.floor(mCamX / 10);
   mSpeed = Math.min(3 + mScore/400, 8);
   document.getElementById('uiScore').textContent = mScore;
 
