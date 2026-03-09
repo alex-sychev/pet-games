@@ -1779,379 +1779,277 @@ async function endJump() {
   showGameOver(jScore, jCoins, 'jump');
 }
 
+
 // ══════════════════════════════════════════════════
 //  ═══ GAME 2: RUNNER ═══
 // ══════════════════════════════════════════════════
-let rScore, rCoins, rDist;
-let rObstacles, rCoinsArr2, rBonusItems;
+let rScore, rCoins, rDist, rTick, rSpeed;
 let rGroundY;
-const rp = {
-  x:0, y:0, vy:0, grounded:false,
-  squash:1, invincible:0,
-  w:52, h:52, jumpCount:0,
-};
-// Active bonuses: { shield, magnet, slowmo } each with timer
-let rBonuses = { shield:0, magnet:0, slowmo:0 };
-let rSpeed, rTick;
-let rClouds = [];
-let rMountains = [];
+let rObstacles, rCoinsArr2, rBonusItems;
+let rBonuses;
+let rClouds, rMountains;
+let lastPhraseScore = -50;
+
+const rp = { x:0, y:0, vy:0, grounded:false, squash:1, invincible:0, w:50, h:50, jumpCount:0 };
+
+const RUN_PHRASES = [
+  '🐾 Я так быстро!','💨 Подождите меня!','🦴 Вижу косточку!',
+  '😤 Я не устал!','🐕 ГАВ ГАВ ГАВ!','💅 Смотри как я!',
+  '😱 ЧТО ЭТО БЫЛО?!','🍪 Дай печеньку!','😮‍💨 Уфффф...',
+  '🏃 Я чемпион!','👀 За мной следят?','🐾 Лапки устали...',
+  '⚡ СКОРОСТЬ!','🤩 Я ЗВЕЗДА!',
+];
 
 function initRun() {
-  rScore=0; rCoins=0; rDist=0;
-  rBgGradient = null;
+  rScore=0; rCoins=0; rDist=0; rTick=0; rSpeed=4;
+  rGroundY = H - 100;
+  rObstacles=[]; rCoinsArr2=[]; rBonusItems=[];
   rBonuses = { shield:0, magnet:0, slowmo:0 };
   lastPhraseScore = -50;
-  rGroundY = H - 100;
-  rSpeed = 4;
+
+  rp.x = W*0.2;
+  rp.y = rGroundY - rp.h/2;
+  rp.vy = 0; rp.grounded = true;
+  rp.squash = 1; rp.invincible = 0; rp.jumpCount = 0;
+
+  rClouds = [];
+  for(let i=0;i<5;i++) rClouds.push({
+    x: Math.random()*W, y: 30+Math.random()*120,
+    s: 0.6+Math.random()*0.7, spd: 0.3+Math.random()*0.4
+  });
+
+  rMountains = [];
+  for(let i=0;i<4;i++) rMountains.push({
+    x: Math.random()*W, y: 60+Math.random()*(rGroundY*0.4),
+    spd: 0.4+Math.random()*0.4
+  });
+
   document.getElementById('uiScore').textContent='0';
   document.getElementById('uiCoins').textContent='0';
   document.getElementById('jetpackBarWrap').style.display='none';
-  rp.x=W*0.22; rp.y=rGroundY-rp.h/2; rp.vy=0; rp.grounded=true;
-  rp.squash=1; rp.invincible=0; rp.jumpCount=0;
+  document.getElementById('bonusBar').innerHTML='';
 
-  // Clouds
-  rClouds=[];
-  for(let i=0;i<6;i++) rClouds.push({x:Math.random()*W,y:40+Math.random()*(H*0.35),s:0.5+Math.random()*0.8,speed:0.4+Math.random()*0.4});
-
-  // Butterflies (parallax, reusing rMountains array)
-  rMountains=[];
-  for(let i=0;i<5;i++) rMountains.push({x:Math.random()*W,y:40+Math.random()*(H*0.4),speed:0.5+Math.random()*0.5});
-
-  rafId=requestAnimationFrame(loopRun);
-}
-
-const RUN_PHRASES = [
-  '🐾 Я так быстро!',
-  '💨 Подождите меня!',
-  '🦴 Вижу косточку!',
-  '😤 Я не устал!',
-  '🐕 ГАВ ГАВ ГАВ!',
-  '💅 Смотри как я!',
-  '😱 ЧТО ЭТО БЫЛО?!',
-  '🌸 Красота вокруг!',
-  '🍪 Дай печеньку!',
-  '😮‍💨 Уфффф...',
-  '🏃 Я чемпион!',
-  '👀 За мной следят?',
-  '🐾 Лапки устали...',
-  '⚡ СКОРОСТЬ!',
-  '🤩 Я ЗВЕЗДА!',
-];
-let lastPhraseScore = -50;
-
-function maybeShowPhrase() {
-  if (rScore - lastPhraseScore >= 40 + Math.floor(Math.random()*30)) {
-    lastPhraseScore = rScore;
-    const phrase = RUN_PHRASES[Math.floor(Math.random()*RUN_PHRASES.length)];
-    // Longer-lived float for phrases
-    floats.push({ x: rp.x, y: rp.y - 45, text: phrase, color: '#fff', life: 1.8, vy: -0.7, big: true });
-  }
+  rafId = requestAnimationFrame(loopRun);
 }
 
 function loopRun() {
   if (!gameActive) return;
+
   rTick++;
-  rDist+=rSpeed*0.1;
-  rScore=Math.floor(rDist);
-  rSpeed = Math.min(4 + rScore/200, 12);
-  document.getElementById('uiScore').textContent=rScore;
+  rDist += rSpeed * 0.1;
+  rScore = Math.floor(rDist);
+  rSpeed = Math.min(4 + rScore/200, 11);
+  document.getElementById('uiScore').textContent = rScore;
 
-  ctx.clearRect(0,0,W,H);
-  drawRunBg();
-  drawRunGround();
-  maybeShowPhrase();
-  updateRunEntities();
-  drawRunObstacles();
-  drawRunCoins2();
-  drawBonusItems();
-  updateRunPlayer();
+  // Clear
+  ctx.clearRect(0, 0, W, H);
 
-  // Running bob animation
-  const runBob = rp.grounded ? Math.sin(rTick * 0.35) * 4 : 0;
-
-  // Speed lines
-  if (rp.grounded && rSpeed > 5) {
-    ctx.save();
-    ctx.globalAlpha = Math.min((rSpeed - 5) / 7, 0.5);
-    ctx.strokeStyle = '#ffb3d1';
-    ctx.lineWidth = 2;
-    for (let i = 0; i < 3; i++) {
-      const ly = rp.y - 15 + i * 14;
-      const len = 20 + i * 10;
-      ctx.beginPath();
-      ctx.moveTo(rp.x + 10, ly);
-      ctx.lineTo(rp.x + 10 + len, ly);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  // Dust puffs
-  if (rp.grounded && rTick % 8 === 0) {
-    spawnParts(rp.x - 20, rGroundY - 4, 'rgba(200,180,200,0.5)', 2);
-  }
-
-  // Always reset before drawing pet
-  ctx.globalAlpha = 1;
-  ctx.globalCompositeOperation = 'source-over';
-  drawPetAt(rp.x, rp.y + runBob, rp.w, -1, rp.squash, false, false);
-
-  updateParticles();
-  rafId=requestAnimationFrame(loopRun);
-}
-
-function drawRunBg() {
-  // Sky — простой градиент каждый кадр
-  ctx.fillStyle = '#ffd6e7';
+  // Sky
+  ctx.fillStyle = '#fce4ec';
   ctx.fillRect(0, 0, W, rGroundY);
 
-  // Солнце
-  ctx.save();
+  // Sun
   ctx.fillStyle = '#ffe066';
-  ctx.beginPath(); ctx.arc(W*0.85, 55, 26, 0, Math.PI*2); ctx.fill();
-  ctx.restore();
+  ctx.beginPath(); ctx.arc(W*0.85, 55, 25, 0, Math.PI*2); ctx.fill();
 
-  // Облака
+  // Clouds
   rClouds.forEach(c => {
-    c.x -= c.speed;
-    if (c.x < -150) { c.x = W+50; c.y = 30+Math.random()*(rGroundY*0.4); }
+    c.x -= c.spd;
+    if (c.x < -120) c.x = W + 60;
     ctx.save(); ctx.translate(c.x, c.y); ctx.scale(c.s, c.s);
     ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    [[-18,0,34],[8,0,24],[0,-13,20],[-12,4,16],[18,4,17]].forEach(([dx,dy,r])=>{
+    [[-18,0,30],[8,0,22],[0,-12,18],[-10,4,14],[18,4,15]].forEach(([dx,dy,r])=>{
       ctx.beginPath(); ctx.arc(dx,dy,r,0,Math.PI*2); ctx.fill();
     });
     ctx.restore();
   });
 
-  // Бабочки
+  // Butterflies
   rMountains.forEach((b,i) => {
-    b.x -= b.speed*0.5;
-    if (b.x < -40) { b.x = W+20; b.y = 40+Math.random()*(rGroundY*0.45); }
-    const by = b.y + Math.sin(rTick*0.04+i)*5;
-    const fw = Math.abs(Math.sin(rTick*0.1+i*1.3))*8+4;
+    b.x -= b.spd;
+    if (b.x < -30) b.x = W + 20;
+    const fw = Math.abs(Math.sin(rTick*0.1+i*1.3))*8+3;
+    const by = b.y + Math.sin(rTick*0.05+i)*5;
     ctx.save(); ctx.translate(b.x, by);
     ctx.fillStyle = 'rgba(244,114,182,0.8)';
-    ctx.beginPath(); ctx.ellipse(-fw/2, -2, fw, 5, -0.3, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(fw/2, -2, fw, 5, 0.3, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#9d174d';
-    ctx.beginPath(); ctx.ellipse(0, 0, 2, 5, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(-fw/2,-2,fw,5,-0.3,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(fw/2,-2,fw,5,0.3,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#9d174d';
+    ctx.beginPath(); ctx.ellipse(0,0,2,5,0,0,Math.PI*2); ctx.fill();
     ctx.restore();
   });
-}
 
-function drawRunGround() {
-  // Pastel green ground
-  ctx.fillStyle='#c8e6c9';
-  ctx.fillRect(0,rGroundY,W,H-rGroundY);
-  // Grass top stripe with gradient
-  const gGr=ctx.createLinearGradient(0,rGroundY,0,rGroundY+16);
-  gGr.addColorStop(0,'#81c784'); gGr.addColorStop(1,'#a5d6a7');
-  ctx.fillStyle=gGr;
-  ctx.fillRect(0,rGroundY,W,16);
+  // Ground
+  ctx.fillStyle = '#a5d6a7';
+  ctx.fillRect(0, rGroundY, W, H - rGroundY);
+  ctx.fillStyle = '#81c784';
+  ctx.fillRect(0, rGroundY, W, 10);
 
-  // Flowers along ground
-  const flowerTypes=['🌸','🌺','🌼','💐'];
-  for(let i=0;i<8;i++) {
-    const fx=pseudoR(i*31+Math.floor(rDist/40+i*0.15))*W;
-    const fy=rGroundY+8;
-    ctx.font='16px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText(flowerTypes[i%flowerTypes.length],fx,fy);
+  // Scrolling flowers
+  const ftypes = ['🌸','🌺','🌼'];
+  for(let i=0;i<6;i++) {
+    const fx = ((pseudoR(i*31)*W + W - (rDist*80)%(W*3)) % W + W) % W;
+    ctx.font='14px Arial'; ctx.textAlign='center';
+    ctx.fillText(ftypes[i%3], fx, rGroundY+12);
   }
 
-  // Dotted path
-  ctx.strokeStyle='rgba(255,255,255,0.5)';
-  ctx.lineWidth=3; ctx.setLineDash([14,12]);
-  ctx.beginPath(); ctx.moveTo(0,rGroundY+35); ctx.lineTo(W,rGroundY+35); ctx.stroke();
-  ctx.setLineDash([]);
-}
-
-function updateRunEntities() {
-  const spd = rBonuses.slowmo > 0 ? rSpeed * 0.4 : rSpeed;
-
-  // Spawn obstacles - girly theme
-  if (rTick%Math.max(60,180-rScore/3)===0) {
-    const h=30+Math.random()*50;
-    const types=['🎀','🧁','🌂','👠','🎠'];
-    rObstacles.push({ x:W+30, y:rGroundY-h/2, w:36, h, type:types[Math.floor(Math.random()*types.length)] });
+  // Spawn obstacles
+  const spawnGap = Math.max(55, 160 - rScore/3);
+  if (rTick % Math.floor(spawnGap) === 0) {
+    const h = 30 + Math.random()*45;
+    const types = ['🎀','🧁','🌂','👠','🎠'];
+    rObstacles.push({ x: W+40, y: rGroundY-h/2, w:34, h, icon: types[Math.floor(Math.random()*types.length)] });
   }
+
   // Spawn coins
-  if (rTick%70===0) {
-    const baseY=rGroundY-60;
-    for(let i=0;i<3;i++) rCoinsArr2.push({x:W+50+i*35,y:baseY-Math.sin(i*0.8)*30,r:10,done:false,anim:i*1.2});
-  }
-  // Spawn bonus items
-  if (rTick%200===0 && Math.random()<0.7) {
-    const bonusTypes = [
-      { kind:'shield', icon:'🛡', color:'#60a5fa' },
-      { kind:'magnet', icon:'🧲', color:'#f472b6' },
-      { kind:'slowmo', icon:'⏱', color:'#a78bfa' },
-    ];
-    const b = bonusTypes[Math.floor(Math.random()*bonusTypes.length)];
-    rBonusItems.push({ x:W+30, y:rGroundY-70, ...b, anim:0, done:false });
+  if (rTick % 65 === 0) {
+    for(let i=0;i<3;i++) rCoinsArr2.push({ x:W+50+i*32, y:rGroundY-60-Math.sin(i*0.8)*25, r:9, done:false, anim:i*1.2 });
   }
 
-  rObstacles.forEach(o=>o.x-=spd);
-  rCoinsArr2.forEach(c=>c.x-=spd);
-  rBonusItems.forEach(b=>{ b.x-=spd; b.anim+=0.06; });
-  rObstacles=rObstacles.filter(o=>o.x>-50);
-  rCoinsArr2=rCoinsArr2.filter(c=>c.x>-30);
-  rBonusItems=rBonusItems.filter(b=>b.x>-40 && !b.done);
+  // Spawn bonuses
+  if (rTick % 220 === 0) {
+    const blist = [{kind:'shield',icon:'🛡',color:'#60a5fa'},{kind:'magnet',icon:'🧲',color:'#f472b6'},{kind:'slowmo',icon:'⏱',color:'#a78bfa'}];
+    const b = blist[Math.floor(Math.random()*blist.length)];
+    rBonusItems.push({ x:W+30, y:rGroundY-70, anim:0, done:false, ...b });
+  }
 
-  // Countdown bonuses
+  // Move entities
+  const spd = rBonuses.slowmo > 0 ? rSpeed*0.4 : rSpeed;
+  rObstacles.forEach(o => o.x -= spd);
+  rCoinsArr2.forEach(c => { c.x -= spd; c.anim += 0.07; });
+  rBonusItems.forEach(b => { b.x -= spd; b.anim += 0.06; });
+  rObstacles = rObstacles.filter(o => o.x > -60);
+  rCoinsArr2 = rCoinsArr2.filter(c => c.x > -30);
+  rBonusItems = rBonusItems.filter(b => b.x > -40 && !b.done);
+
+  // Bonus timers
   if (rBonuses.shield>0) rBonuses.shield--;
   if (rBonuses.magnet>0) rBonuses.magnet--;
   if (rBonuses.slowmo>0) rBonuses.slowmo--;
-
   updateBonusBar();
-}
 
-function updateBonusBar() {
-  const bar = document.getElementById('bonusBar');
-  bar.innerHTML = '';
-  const DURATION = 300;
-  const defs = [
-    { key:'shield', icon:'🛡', color:'#60a5fa', label:'Щит' },
-    { key:'magnet', icon:'🧲', color:'#f472b6', label:'Магнит' },
-    { key:'slowmo', icon:'⏱', color:'#a78bfa', label:'Слоу-мо' },
-  ];
-  defs.forEach(d => {
-    if (rBonuses[d.key] <= 0) return;
-    const pct = (rBonuses[d.key] / DURATION * 100).toFixed(0);
-    const pill = document.createElement('div');
-    pill.className = 'bonus-pill';
-    pill.innerHTML = `${d.icon} ${d.label} <div class="bonus-pill-bar"><div class="bonus-pill-fill" style="width:${pct}%;background:${d.color}"></div></div>`;
-    bar.appendChild(pill);
+  // Draw obstacles
+  rObstacles.forEach(o => {
+    ctx.font = `${o.h*0.9}px Arial`; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(o.icon, o.x, o.y);
   });
-}
 
-function drawBonusItems() {
-  rBonusItems.forEach(b=>{
-    if(b.done) return;
+  // Draw coins
+  rCoinsArr2.forEach(c => {
+    if (c.done) return;
+    const bob = Math.sin(c.anim)*4;
+    ctx.fillStyle='#fbbf24';
+    ctx.beginPath(); ctx.arc(c.x, c.y+bob, c.r, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle='#fde68a';
+    ctx.beginPath(); ctx.arc(c.x-2, c.y+bob-2, c.r*0.4, 0, Math.PI*2); ctx.fill();
+  });
+
+  // Draw bonus items
+  rBonusItems.forEach(b => {
     const bob = Math.sin(b.anim)*5;
-    ctx.save(); ctx.globalAlpha=1;
-    // Glow
-    const gg = ctx.createRadialGradient(b.x,b.y+bob,4,b.x,b.y+bob,22);
-    gg.addColorStop(0, b.color+'88'); gg.addColorStop(1,'rgba(0,0,0,0)');
-    ctx.fillStyle=gg; ctx.beginPath(); ctx.arc(b.x,b.y+bob,22,0,Math.PI*2); ctx.fill();
-    ctx.font='26px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font='24px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText(b.icon, b.x, b.y+bob);
-    ctx.restore();
-  });
-}
-
-function drawRunObstacles() {
-  rObstacles.forEach(o=>{
-    ctx.save(); ctx.translate(o.x,o.y);
-    ctx.font=`${o.h*0.9}px Arial`; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText(o.type,0,0); ctx.restore();
-  });
-}
-
-function drawRunCoins2() {
-  rCoinsArr2.forEach(c=>{
-    if(c.done) return;
-    c.anim+=0.06;
-    const bob=Math.sin(c.anim)*4;
-    ctx.save(); ctx.translate(c.x,c.y+bob);
-    const g=ctx.createRadialGradient(0,0,2,0,0,c.r*2);
-    g.addColorStop(0,'rgba(251,191,36,0.5)'); g.addColorStop(1,'rgba(251,191,36,0)');
-    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,c.r*2,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle='#fbbf24'; ctx.beginPath(); ctx.arc(0,0,c.r,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle='#fde68a'; ctx.beginPath(); ctx.arc(-2,-2,c.r*0.4,0,Math.PI*2); ctx.fill();
-    ctx.restore();
-  });
-}
-
-function updateRunPlayer() {
-  // Gravity
-  rp.vy+=0.55;
-  rp.y+=rp.vy;
-
-  // Ground
-  if (rp.y>=rGroundY-rp.h/2) {
-    rp.y=rGroundY-rp.h/2; rp.vy=0; rp.grounded=true; rp.jumpCount=0;
-  } else rp.grounded=false;
-
-  // Squash
-  rp.squash+=(1-rp.squash)*0.22;
-  if (rp.vy<-4) rp.squash=0.72; else if (rp.grounded) rp.squash=1.15;
-
-  if (rp.invincible>0) rp.invincible--;
-
-  // Bonus item pickup
-  rBonusItems.forEach(b=>{
-    if (!b.done && Math.hypot(rp.x-b.x, rp.y-b.y)<34) {
-      b.done=true;
-      rBonuses[b.kind] = 300; // ~5 seconds at 60fps
-      sfx.coin();
-      spawnParts(b.x, b.y, b.color, 8);
-      const names = { shield:'🛡 ЩИТ!', magnet:'🧲 МАГНИТ!', slowmo:'⏱ СЛОУ-МО!' };
-      spawnFloat(b.x, b.y-15, names[b.kind], b.color);
-    }
   });
 
-  // Magnet: pull nearby coins
+  // Player physics
+  rp.vy += 0.55;
+  rp.y += rp.vy;
+  if (rp.y >= rGroundY - rp.h/2) {
+    rp.y = rGroundY - rp.h/2;
+    rp.vy = 0; rp.grounded = true; rp.jumpCount = 0;
+  } else {
+    rp.grounded = false;
+  }
+  rp.squash += (1 - rp.squash) * 0.2;
+  if (rp.vy < -4) rp.squash = 0.72;
+  else if (rp.grounded) rp.squash = 1.12;
+  if (rp.invincible > 0) rp.invincible--;
+
+  // Magnet
   if (rBonuses.magnet > 0) {
-    rCoinsArr2.forEach(c=>{
+    rCoinsArr2.forEach(c => {
       if (c.done) return;
-      const dx = rp.x - c.x, dy = rp.y - c.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist < 120) { c.x += dx/dist*6; c.y += dy/dist*6; }
+      const dx=rp.x-c.x, dy=rp.y-c.y, d=Math.hypot(dx,dy);
+      if (d < 120) { c.x+=dx/d*5; c.y+=dy/d*5; }
     });
   }
 
-  // Coin collect
-  rCoinsArr2.forEach(c=>{
-    if(!c.done && Math.hypot(rp.x-c.x,rp.y-c.y)<28) {
+  // Collect coins
+  rCoinsArr2.forEach(c => {
+    if (!c.done && Math.hypot(rp.x-c.x, rp.y-c.y) < 28) {
       c.done=true; rCoins++; sfx.coin();
-      document.getElementById('uiCoins').textContent=rCoins;
-      spawnParts(c.x,c.y,'#fbbf24',5); spawnFloat(c.x,c.y-10,'+1🪙','#fbbf24');
+      document.getElementById('uiCoins').textContent = rCoins;
+      spawnParts(c.x, c.y, '#fbbf24', 4);
+      spawnFloat(c.x, c.y-10, '+1🪙', '#fbbf24');
     }
   });
 
-  // Shield glow around player
+  // Collect bonuses
+  rBonusItems.forEach(b => {
+    if (!b.done && Math.hypot(rp.x-b.x, rp.y-b.y) < 34) {
+      b.done=true; rBonuses[b.kind]=300; sfx.coin();
+      spawnParts(b.x, b.y, b.color, 6);
+      spawnFloat(b.x, b.y-15, ({shield:'🛡 ЩИТ!', magnet:'🧲 МАГНИТ!', slowmo:'⏱ СЛОУ-МО!'})[b.kind], b.color);
+    }
+  });
+
+  // Shield glow
   if (rBonuses.shield > 0) {
-    ctx.save(); ctx.globalAlpha=0.35;
-    const sg = ctx.createRadialGradient(rp.x,rp.y,10,rp.x,rp.y,42);
-    sg.addColorStop(0,'#93c5fd'); sg.addColorStop(1,'rgba(0,0,0,0)');
-    ctx.fillStyle=sg; ctx.beginPath(); ctx.arc(rp.x,rp.y,42,0,Math.PI*2); ctx.fill();
+    ctx.save(); ctx.globalAlpha=0.3;
+    ctx.fillStyle='#93c5fd';
+    ctx.beginPath(); ctx.arc(rp.x, rp.y, 38, 0, Math.PI*2); ctx.fill();
     ctx.restore();
   }
 
-  // Obstacle collision — shield blocks
-  if (rp.invincible===0) {
-    rObstacles.forEach(o=>{
-      if (Math.abs(rp.x-o.x)<(rp.w/2+o.w/2-10) && Math.abs(rp.y-o.y)<(rp.h/2+o.h/2-8)) {
+  // Collision
+  if (rp.invincible === 0) {
+    for (const o of rObstacles) {
+      if (Math.abs(rp.x-o.x) < rp.w/2+o.w/2-8 && Math.abs(rp.y-o.y) < rp.h/2+o.h/2-8) {
         if (rBonuses.shield > 0) {
-          rBonuses.shield = 0;
-          rp.invincible = 60;
-          spawnParts(rp.x, rp.y, '#60a5fa', 10);
-          spawnFloat(rp.x, rp.y-20, '🛡 БЛОК!', '#60a5fa');
+          rBonuses.shield=0; rp.invincible=60;
+          spawnParts(rp.x,rp.y,'#60a5fa',8);
+          spawnFloat(rp.x,rp.y-20,'🛡 БЛОК!','#60a5fa');
         } else {
-          sfx.die(); endRun();
+          sfx.die(); endRun(); return;
         }
       }
-    });
+    }
   }
+
+  // Phrases
+  if (rScore - lastPhraseScore >= 40 + Math.floor(Math.random()*25)) {
+    lastPhraseScore = rScore;
+    const ph = RUN_PHRASES[Math.floor(Math.random()*RUN_PHRASES.length)];
+    floats.push({ x:rp.x, y:rp.y-50, text:ph, color:'#fff', life:1.8, vy:-0.6, big:true });
+  }
+
+  // Draw pet
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  const bob = rp.grounded ? Math.sin(rTick*0.35)*3 : 0;
+  drawPetAt(rp.x, rp.y+bob, rp.w, -1, rp.squash, false, false);
+
+  updateParticles();
+  rafId = requestAnimationFrame(loopRun);
 }
 
 function doJump() {
-  if (rp.jumpCount<2) {
-    rp.vy=-14; rp.jumpCount++;
-    rp.squash=0.68; sfx.jump();
-    spawnParts(rp.x, rp.y+rp.h/2, '#6bcb77', 4);
+  if (rp.jumpCount < 2) {
+    rp.vy = -14; rp.jumpCount++;
+    rp.squash = 0.68; sfx.jump();
+    spawnParts(rp.x, rp.y+rp.h/2, '#6bcb77', 3);
   }
 }
 
 async function endRun() {
-  gameActive=false;
+  gameActive = false;
   setLocalHS('run', rScore);
   await saveScore('run', rScore);
   showGameOver(rScore, rCoins, 'run');
 }
 
 function pseudoR(seed) {
-  const x=Math.sin(seed+1)*10000; return x-Math.floor(x);
+  const x = Math.sin(seed+1)*10000; return x - Math.floor(x);
 }
 
 // ══════════════════════════════════════════════════
