@@ -1070,17 +1070,32 @@ function updateHomePetPreview() {
   document.getElementById('hsMario').textContent = getLocalHS('mario') ? getLocalHS('mario') + ' очк.' : '— очков';
 }
 
-function compressAndSaveImg(img) {
-  // Always compress — never save raw base64 (causes freeze on large photos)
+function compressAndSaveImg(img, originalSrc) {
   const MAX = 160;
   const canvas = document.createElement('canvas');
   const ratio = img.width / img.height;
   canvas.width  = ratio >= 1 ? MAX : Math.round(MAX * ratio);
   canvas.height = ratio >= 1 ? Math.round(MAX / ratio) : MAX;
-  canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-  const compressed = canvas.toDataURL('image/jpeg', 0.6);
+  const c = canvas.getContext('2d');
+
+  // Проверяем нужна ли прозрачность (PNG/webp — да, jpeg — нет)
+  const isPng = originalSrc && (originalSrc.startsWith('data:image/png') || originalSrc.startsWith('data:image/webp'));
+  if (!isPng) {
+    c.fillStyle = '#ffffff';
+    c.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  c.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  // PNG сохраняет прозрачность, jpeg — меньше весит для фото
+  const compressed = isPng
+    ? canvas.toDataURL('image/png')
+    : canvas.toDataURL('image/jpeg', 0.7);
+
   try { localStorage.setItem('petImgSrc', compressed); } catch(e) {
-    console.warn('localStorage full, skipping photo save');
+    // Если PNG слишком большой — попробуем webp или jpeg
+    try { localStorage.setItem('petImgSrc', canvas.toDataURL('image/jpeg', 0.7)); } catch(e2) {
+      console.warn('localStorage full');
+    }
   }
 }
 
@@ -1099,7 +1114,7 @@ function setPetFromFile(file, cb) {
         pets.push({ id: pets.length, name: 'Моё фото', type: 'image', content: img });
         selectedPet = pets.length - 1;
       }
-      compressAndSaveImg(img);
+      compressAndSaveImg(img, src);
       savePetChoice();
       if (cb) cb();
     };
